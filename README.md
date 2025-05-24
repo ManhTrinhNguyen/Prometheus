@@ -11,6 +11,16 @@
   - [Configuring Prometheus](#Configuring-Prometheus)
  
   - [Alert Manager](#Alert-Manager)
+ 
+  - [Data Storage](#Data-Storage)
+ 
+  - [PromQL Query Language](#PromQL-Query-Language)
+ 
+  - [Prometheus Characteristic](#Prometheus-Characteristic)
+ 
+  - [Scale Prometheus using Prometheus Federation](#Scale-Prometheus-using-Prometheus-Federation)
+ 
+  - [Prometheus with Docker and Kubernetes](#Prometheus-with-Docker-and-Kubernetes)
 
 ## Introduction
 
@@ -135,8 +145,59 @@ I also can define another endpoint to scrape through jobs, so I can create anoth
 
 Important point : 
 
-- First one is how des Prometheus actually trigger the alerts that are defined by `rules` and who receies them ? 
+First one is how des Prometheus actually trigger the alerts that are defined by `rules` and who receies them ?
 
+- Prometheus has a compomnent called `alert manager` that is responsible for firing alers via different channels . It could be email it could be a Slack channel or some other notification client . So Prometheus server will read the alert `rules` and if the condition in the rules is met an alert gets fired through that configured channel
+
+#### Data Storage
+
+Second one this Prometheus data storage. Where does Promethus store all this data that it collects and then aggregates ? And how can other system access this  data 
+
+Prometheus stores metrics data on disk so it includes a local on disk time series database, but also optionally intergrates with remote storage system . And the data is stored in a custom time series format . And bcs of that I can write Prometheus data directly into a relational database 
+
+So once I have collected the metrics, Prometheus also lets me query the metrics data on targets through its server API using PromQL, query language 
+
+#### PromQL Query Language 
+
+I can use Prometheus dashboard UI to ask the Prometheus server via PromQL to show status of a particular target right now, or I can use more powerful data visualization tools like Grafana to display the data, which under the hood also use PromQL to get the data out of Prometheus 
+
+Exmaple of PromQL query : 
+
+- With this one here basically queries all HTTP status codes, execpt the ones in 400 range
+
+- And this one basically does some sub query that for a period of 30 mins
+
+But with Grafana instead of writing PromQL queries directly into the Prometheus server, I basically have Grafana UI where I can create dashboard that can then in the background use Prom QL to query the data 
+
+
+#### Prometheus Characteristic
+
+Prometheus Characteristic that it is designed to be reliable, even when other systems have an outage so that I can diagnose the problems and fix them 
+
+So each Prometheus server is standalone and self-containing meaning it doesn't depend on network storage or other remote services . It meant to work when other parts of the infrastructure are broken and I don't need to set up extensive infrastructure to use it 
+
+However it also has disadvantage that Prometheus can be difficult to scale . So when I have 100 of servers I might want to have multiple Prometheus servers that somewhere aggreate all these metrics and configuring that and scaling Prometheus in that way can actually be very difficult bcs of this charactieristic 
+
+While using a single node is less complex and I can get started very easily it put a limit on the number of metric that can be monitored by Prometheus . 
+
+So to work around that I either increase the capacity of the Prometheus server so we can store more metrics data . Or I limit the number of metrics that Prometheus collects from the applications to keep it down to only relevant one 
+
+#### Scale Prometheus using Prometheus Federation 
+
+Now if I have a set up of 1000 of nodes where we need to scale Prometheus, as an alternatvie we can build what's called `Prometheus Federation`. 
+
+`Prometheus Federation` allow one promethues server to scrape data from another prometheus server . 
+
+If we have tones of nodes and we need scalability, this way using Prometheus Federation we can achieve a scalable Prometheus monitoring set up
+
+#### Prometheus with Docker and Kubernetes
+
+
+In terms of Prometheus with Docker and Kubernetes, Prometheus is fully compatible with both 
+
+Prometheus components are available as Docker image and therefore can easily be deployed in Kunernetes or other container environments 
+
+And integrates greate with Kubernetes infrastructure, providing cluster node resource monitoring out of the box . Which mean once it's deployed on Kubernetes, it starts gathering metrics data on each Kubernetes node server without any extra configuration 
 
 
 
