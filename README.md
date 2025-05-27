@@ -60,7 +60,7 @@ So the Prometheus server mornitor a particular thing . Could be anything . Could
 
 Each `Target` has `Units` of monitoring . 
 
-<img width="609" alt="Screenshot 2025-05-27 at 10 51 58" src="https://github.com/user-attachments/assets/af20f562-468c-4b95-8f68-6a49e216f795" />
+<img width="600" alt="Screenshot 2025-05-27 at 11 01 42" src="https://github.com/user-attachments/assets/84ca5c05-5978-436a-bf93-4a00b303b584" />
 
 - For Linux Server target it could be a current CPU status, its memory usage, disk space usage etc ...
 
