@@ -60,6 +60,8 @@ So the Prometheus server mornitor a particular thing . Could be anything . Could
 
 Each `Target` has `Units` of monitoring . 
 
+<img width="609" alt="Screenshot 2025-05-27 at 10 51 58" src="https://github.com/user-attachments/assets/af20f562-468c-4b95-8f68-6a49e216f795" />
+
 - For Linux Server target it could be a current CPU status, its memory usage, disk space usage etc ...
 
 - For Application for example it could be a number of exceptions, number of requests or request duration .
