@@ -48,6 +48,8 @@ So typically I have multiple servers that run containerized applications, and th
 
 At it core Prometheus has the main component called `Prometheus server` that does the actual monitoring work and is made up of three parts : 
 
+<img width="600" alt="Screenshot 2025-05-27 at 10 51 58" src="https://github.com/user-attachments/assets/4e8f971c-7d83-4080-ae65-2412ed44d0ae" />
+
 - `Time Series Database` : that stores all the metrics data like current CPU usage or a number of exceptions in an application
 
 - `Data retrieval worker`: that is responsible for getting or pulling those metrics from application, services, servers and other target resources and storing them or pusing them into the Database .
