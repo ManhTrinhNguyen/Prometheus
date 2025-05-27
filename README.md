@@ -21,6 +21,18 @@
   - [Scale Prometheus using Prometheus Federation](#Scale-Prometheus-using-Prometheus-Federation)
  
   - [Prometheus with Docker and Kubernetes](#Prometheus-with-Docker-and-Kubernetes)
+ 
+- [Prometheus Stack](#Prometheus-Stack)
+
+  - [Demo Overview](#Demo-Overview)
+ 
+  - [Create EKS Cluster](#Create-EKS-Cluster)
+ 
+  - [Deploy Micros Services Applications](#Deploy-Micros-Services-Applications)
+ 
+  - [Deploy Prometheus Stack using Helm](#Deploy-Prometheus-Stack-using-Helm)
+ 
+  - [Understanding Prometheus Stack Components](#Understanding-Prometheus-Stack-Components)
 
 ## Introduction
 
@@ -202,6 +214,112 @@ In terms of Prometheus with Docker and Kubernetes, Prometheus is fully compatibl
 Prometheus components are available as Docker image and therefore can easily be deployed in Kunernetes or other container environments 
 
 And integrates greate with Kubernetes infrastructure, providing cluster node resource monitoring out of the box . Which mean once it's deployed on Kubernetes, it starts gathering metrics data on each Kubernetes node server without any extra configuration 
+
+
+## Prometheus Stack 
+
+I will set up my Cluster on EKS and deploy Prometheus 
+
+There are serveral moving parts and components in Prometheus monitoring stack 
+
+How do we  go about deploying it in Kubernetes Cluseter:
+
+1. Putting it together all the configuration files I need for all the parts . So for each component of the Prometheus monitoring stack, basically creating those YAML file . For Prometheus Stateful set, Alert Manager, Grafana deployments, all the config maps and secrets that I need ... and then going ahead and executing them in the right order bcs of the dependencies (Not Recommended)
+
+2. Using Operator . Think of an operator as a manager of all Prometheus individual components that I create . So Stateful Set and Deployment will manage their pod replicas like restart them when they die, make sure they are accessible and so on . In the same way, Operator will keep an eye and manage the combination of Stateful set, Deployment and all the other components that make up Prometheus as one unit so that I don't have to manually manage those separate pieces . I will find an Operator for Prometheus and deploy it in the configuration file
+
+3. Using Helm chart to deploy the Operator . Prometheus Operator has a Helm Chart that is maintained by the Helm community itself (Recommended)
+
+  - So Helm will do the initial setup and operator will then manage the running Prometheus set up
+
+#### Demo Overview 
+
+First I will create a Cluster in EKS where I am going to deploy my Microservices application. And then I will deploy Prometheus monitoring stack that will monitor my Cluster and the Micros Application 
+
+#### Create EKS Cluster 
+
+I will use `Terraform` to create my EKS Cluster (https://github.com/ManhTrinhNguyen/Terraform-Exercise). With 2 Nodes
+
+#### Deploy Micros Services Applications 
+
+I will Deploy my Micorservices 
+
+(https://github.com/ManhTrinhNguyen/Kubernetes-Practice/blob/main/Create-HelmChart-Microservices/charts/microservices/templates/deployments.yaml)
+
+ Now I want to deploy Monitoring Stack that will monitor my Cluster and the Application running inside . 
+
+ So while the applications are starting up in the default namespace, I can now deploy Prometheus monitoring stack using the HelmChart 
+
+#### Deploy Prometheus Stack using Helm 
+
+Docs (https://artifacthub.io/packages/helm/prometheus-community/kube-prometheus-stack)
+
+First I have to add Helm Repository : `helm repo add prometheus-community https://prometheus-community.github.io/helm-charts` and `helm repo update`
+
+We will install the whole monitoring stack in its own dedecated namespace . So it is not going to be mixed with our Micros Application . So we have a nice separation between them . 
+
+Create namespace : `kubectl create namespace monitoring`
+
+Install Prometheus Chart : `helm install [RELEASE_NAME] -n monitoring prometheus-community/kube-prometheus-stack`
+
+Now the monitoring stack deployed I can check the Prometheus pod whether they are running `kubectl get all -n monitoring`
+
+I can see a lot of K8s components get deployed . I will go through what applications got deployed that are part of the Prometheus Stack . And what is the Role of each Application in the Cluster so that I know basically what I am dealing with when I have Prometheus stack running in my Cluster 
+
+#### Understanding Prometheus Stack Components 
+
+So we have 2 Stateful Set:
+
+- One of them is Prometheus itself This chained name : `prometheus-monitoring-kube-prometheus-prometheus`  . This is the actual core Prometheus Server based on the main Image
+
+- Other Stateful set is the `AlertManager` which is another part of the stack 
+
+We have 3 Deployments:
+
+- We have `monitoring-kube-prometheus-operator` itself . This is the main one that actually  created `Prometheus` and `Alert Manager` Stateful sets
+
+- And we have `monitoring-grafana` which is its own deployment
+
+- And we have `monitoring-kube-state-metrics` is basically its own Helm Chart so it is a dependency of this Helm Chart that we just installed. So bascially this application what it does is it scrapes Kubernetes components metrics themselves. So it monitor the health of deployments. And stateful sets and pods inside the cluster and makes it available for Prometheus to scrape . Which is good bcs we get the K8 infrastructure monitoring out of the box with this setup
+
+We have ReplicaSets created by Deployment . So it the same for Deployment 
+
+We have 1 `DaemonSet` in this stack of node `exporter`
+
+- First `DaemonSet` is a component which will run on every single Worker Node of Kubernetes .
+
+- Node Exporter component of Prometheus basically what it does is it connect to the Server itself or it lays over the Server and it translates the Server metrics, Worker Node metrics like CPU usage, the load on that server . It transform them into Prometheus metric so they can be scraped  
+
+
+Those Pods are just coming from the deployments and Stateful Sets
+
+And Each Components has its own Services 
+
+To put it in the big Picture We have set up the monitoring stack itself that will monitor different parts. In addition to that default I already get an out of the box monitoring configuration for my Kubernetes Cluster . So my Worker Nodes and statistics on the Worker Nodes are being monitored . And the Kubernetes components like pods and deployments and replicas, stateful set are also being monitored. And this configuration is there out of the box 
+
+Where does this configuration actually come from ? `kubectl get configmap -n monitoring` . I have the configuration for all the all different parts they're also managed by the Operator . And this include all the information to how Prometheus monitoring stack will connect default metrics, scrape that information and do all this stuff . 
+
+- I have the configuration files and I also the default rule file for Prometheus `prometheus-monitoring-kube-prometheus-prometheus-rulefiles-0`
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
