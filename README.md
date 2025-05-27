@@ -33,6 +33,8 @@
   - [Deploy Prometheus Stack using Helm](#Deploy-Prometheus-Stack-using-Helm)
  
   - [Understanding Prometheus Stack Components](#Understanding-Prometheus-Stack-Components)
+ 
+  - [Components inside Promethetheus Alertmanager Operator](#Components-inside-Promethetheus-Alertmanager-Operator)
 
 ## Introduction
 
@@ -301,23 +303,77 @@ Where does this configuration actually come from ? `kubectl get configmap -n mon
 
 - I have the configuration files and I also the default rule file for Prometheus `prometheus-monitoring-kube-prometheus-prometheus-rulefiles-0`
 
+We also have `Secrets` for Grafana, for Prometheus, again, for different components. This will include the certificates . This will include the Username password for different UI parts and so on
 
+Another thing was also created from this stack ae the CRDs . `kubectl get crd -n monitoring`
 
+- A `CRDs` lets you create your own Kubernetes objects so Kubernetes can understand and manage custom things in your system — not just built-in objects.
 
+- `CRDs` are `Custom Resource Definition` this is another concept in Kubernetes. Prometheus monitoring stack setup includes these custom resoruces definitions.    
 
+#### Components inside Promethetheus Alertmanager Operator
 
+First I will do `kubectl get  statefulset -n monitoring` . Then I will describe it `kubectl describe statefulset prometheus-monitoring-kube-prometheus-prometheus -n monitoring > prom.yaml`
 
+Also I want to see what inside the `Alert Manager`: `kubectl describe statefulset prometheus-monitoring-kube-prometheus-alertmanager -n mornitoring > alert-manager.yaml`
 
+Also I want to see the operator itself : `kubectl describe monitoring-kube-prometheus-operator -n monitoring > operator.yaml`
 
+In `prom.yaml file` :
 
+- We have `Prometheus container` and we have `Config Reloader`
 
+- I can see what Images they based on and what version . I can also see which Port are they running and also Argument
 
+- `Mounts` this is where Prometheus get all the configuration data . For example there is Promethues configuration file . There is a `rules` file and some `certs` . All this is mounted into Prometheus Pod so that it has access to it
 
+  - `Configuration file` is where Prometheus defines what endpoints it should scrape so it has all the addresses of Applications that expose this `/metric` endpoint so it know where to get them from
+ 
+  - `Rules` file basically defines different rules . For example it could be alerting rules that states that when something happen on the server or CPU usage spikes to a certain percentage then send out this email to some people
+ 
+  - So those 2 are seperation configuration files and both of them are mounted into a Prometheus pod 
 
+`Config-reloader` the `Hepler container or Sidecar` of main Prometheus, they help reoloading . 
 
+- Example When configuration changes, these containers are responsible for reloading and letting Prometheus know what there are changes in the configuration
 
+- Config reloader has access to Promethues configuration file `--config-file=/etc/prometheus/config/prometheus.yaml.gz`
 
+- `--reload-url=http://127.0.0.1:9090/-/reload` This is a endpoint of  Prometheus
 
+- `--config-file=/etc/prometheus/config/prometheus.yaml.gz` this is a mount path inside the pod. So each container can access this path
+
+- And the `config reloader` also manages the `rule file `. So it has access to where the rule file is located 
+
+Where does the configuration come from ? Where does the rule file come from ?
+
+- That is also part of the stack . Out of the box I have the default Prometheus configuration file with default configuration and I get the default rules . And these are created as `config maps`
+
+- Get the list of config map `kubectl get configmap -n monitoring`
+
+- I can easily find that for example for the config file I have the `mount` path `--config-file=/etc/prometheus/config/prometheus.yaml.gz` and if I go to the `Mounts` I will see the `/etc/prometheus/config from config (rw)`
+
+- The way the `Mount` work is I mount a volume inside the pod then the individual containers can actually mount those volumes inside the container path so they can access those mounts of the pods
+
+- I will check the `Volumes` and this is a volume will mount inside the pod . I can see the `Config` one with Secret Type and the name of the Secret
+
+  - To check to secret `kubectl get secret <name-of-secret> -o yaml > secret.yaml` I can see the `prometheus.yaml.gz` file encoded
+
+- I can also see where rule file coming from .
+
+  - `prometheus-prometheus-kube-prometheus-prometheus-rulefiles-0` this is a name of the rule file with type Configmap
+ 
+  - `kubectl get configmap configmap-name -o yaml > configmap.yaml` to get the content of configmap 
+
+Then we also have the `AlertManager` config file . We have all the configuration file the same as `Prom.yaml` file   
+
+Then we also have an Operator which is included as part of the entire Prometheus stack which is the name of the container `kube-prometheus-stack` . 
+
+- This is basically the orchestrator of whole Prometheus monitoring stack . This manages all the different moving part of that stacks. It loads all this configuration stuff and it orchestarte how everything work
+
+- All these things are interconnected with each other   
+
+Important to understand is add or adjust the alert rules or alert configuration . And second one is how to adjust the Prometheus configuration so I can add new endpoints for example for scraping 
 
 
 
