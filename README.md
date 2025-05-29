@@ -473,7 +473,32 @@ And inside that folder I have bunch of dashboards, I can also create a new Dashb
 
 Lets look at Kubernetes / Compute Resources / Cluster Dashboard 
 
-To go through how the dashboards are actually made up and I can create all of these myself as well, on a dashboard view I can have multiple rows, so if I add 2 rows here, I can see that a row is one grouping of different data . I can then group the data into each row based on what the data is, so we can have 
+To go through how the dashboards are actually made up and I can create all of these myself as well, on a dashboard view I can have multiple rows, so if I add 2 rows here, I can see that a row is one grouping of different data . I can then group the data into each row based on what the data is, so we can have one row for CPU data another row for memory data and so on 
+
+We can organize the data to be part of these rows . For examole I create to be used for `metrics` about memory I can move any relevant data here into `memory` row so that it's group together correctly
+
+These diffent pieces of information here that we can display on their own or in rows are called `panels` 
+
+`Panels` can be percentage values displayed, Or it could be a Graph, or it could be a table with multiple columns and different values 
+
+In most cases for the common scenearios such as CPU and storage memory monitoring we have these out-of-box dashboard that you can use in a ready form 
+
+Structure Summary : We have Folder that have multiple dashboard, the Dashboard is made up of rows which one or more `panels` inside . So that's how the structure of  data can look like 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
