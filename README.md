@@ -35,6 +35,12 @@
   - [Understanding Prometheus Stack Components](#Understanding-Prometheus-Stack-Components)
  
   - [Components inside Promethetheus Alertmanager Operator](#Components-inside-Promethetheus-Alertmanager-Operator)
+ 
+- [Data Visualization with Prometheus UI](#Data-Visualization-with-Prometheus-UI)
+
+  - [Decide what we want to monitor](#Decide-what-we-want-to-monitor)
+ 
+  - [Prometheus UI](#Prometheus-UI)
 
 ## Introduction
 
@@ -374,6 +380,50 @@ Then we also have an Operator which is included as part of the entire Prometheus
 - All these things are interconnected with each other   
 
 Important to understand is add or adjust the alert rules or alert configuration . And second one is how to adjust the Prometheus configuration so I can add new endpoints for example for scraping 
+
+## Data Visualization with Prometheus UI
+
+#### Decide what we want to monitor 
+
+With all the components, what do we want to achieve with it ? 
+
+- Whenever something strange or unexpected happens in a cluster, either in the cluster components or applications themselves, so basically we want to observe any anomalies which will be an indicator that something is wrong in our cluster
+
+- So when you are configuring monitoring for my application, I have to decide, what do I want to observe, so what anomalies I want to monitor in my cluster . Basically when I have CPU spikes in my Cluster, that would be an indicator that something is happening with one of the applications, so I need to react and fix that issue . Or maybe cluster is running out of storage . I want to observe whether my application is suddenly getting too much traffic, which could be an indicator that too many users are suddenly aware of my application or maybe my cluster or application is being hacked or maybe our cluster is getting too many unauthenticated requests and in such cases, I may want to react and basically analyze what is going on in the cluster and fix the issue, so my cluster doesn't break
+
+How do I get this information using my monitoring stack that I just deployed in the Cluster 
+
+- We need some visibility of the data that shows exactly there is a CPU spike or my application is getting too many connections too many requests or my cluster is running out of storage
+
+- And we want to see bascially what data we have available from the cluster that we can observe . Like for CPU, RAM, are we monitoring the Cluster Nodes to get this information, to have this information about Cluster accesses, for application traffic, are we monitoring the application itself to have this information about the number of requests it is getting or for application accessibility itself, are we monitoring the Kubernetes components
+
+- Basically what components are we monitoring and what kind of data we are getting from these components . So we need to see all this information somewhere in the human readable way visualized in a UI
+
+#### Prometheus UI
+
+To see my Prometheus UI -> In `Services` component there is  a Prometheus Service itself that is a `Service` that expose Prometheus UI `service/monitoring-kube-prometheus-prometheus` . 
+
+- I will do `portforwarding` bcs this is a internal Service so I can access in localhost : `kubectl port-forward service/monitoring-kube-prometheus-prometheus -n monitoring 9090:9090 &`
+
+- `&` this sign is to run in the background
+
+What `Targets` is our Prometheus that is running in the cluster actually monitoring ? Where are we getting data from ? 
+
+- Click in `Status` -> Choose `Target` -> I will see the list of components that Prometheus is already actively collecting data from
+
+- If I want to monitor an application like Redis, for example and it is not on the list here (UI) then I would have to add that target to my Prometheus monitoring `target` list so that I start getting data from that
+
+- The stack the we deployed already includes application that let Prometheus scrape data like node exporter, or the cube state metrics
+
+- If we expand this we can also see some information about labels and the state, whether it's up or not, and the metrics endpoints that this application exposes inside the cluster `http://192.168.8.195:9093/metrics` (This is an internal endpoint)
+
+Let's say I have the targets I want to monitor . Now I want to know for a target, do you acutally have the data you want to observe  for that specific target ? 
+
+
+
+
+
+
 
 
 
