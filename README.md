@@ -41,6 +41,8 @@
   - [Decide what we want to monitor](#Decide-what-we-want-to-monitor)
  
   - [Prometheus UI](#Prometheus-UI)
+ 
+  - [Introduction to Grafana UI](#Introduction-to-Grafana-UI)
 
 ## Introduction
 
@@ -417,21 +419,61 @@ What `Targets` is our Prometheus that is running in the cluster actually monitor
 
 - If we expand this we can also see some information about labels and the state, whether it's up or not, and the metrics endpoints that this application exposes inside the cluster `http://192.168.8.195:9093/metrics` (This is an internal endpoint)
 
-Let's say I have the targets I want to monitor . Now I want to know for a target, do you acutally have the data you want to observe  for that specific target ? 
+Let's say I have the targets I want to monitor . Now I want to know for a target, do you acutally have the data you want to observe  for that specific target ? So you want to see whether you have the actual metrics like CPU usage, number of requests, etc that Prometheus is gathering from the `Target` 
 
+- And I can actually look up the metrics on this main view of Prometheus UI . Either by just typing in the keyword `cpu`
 
+- Also simply just getting the list of all the metrics that these different targets provide .
 
+- So `metrics` is always one piece of data about a specific `target`, like number of total requests that the API server is getting, or how many container processes I have running, etc ...
 
+- If I type in `CPU` I will have CPU information for each instance or node itself in the cluster, or maybe per namespace and so on . This is more of the low level view of your data and you can actually use it for debugging or troubleshooting if you are not getting the `metrics` you want or maybe the target is not accessible etc ...
 
+- I can also see Prometheus Configuration in `Status -> Configuration` as well as Runtime and Build in `Status -> Runtime and Build` information about my Prometheus application
 
+- Prometheus configuration is the concept of jobs . If we look inside the configuration file of Prometheus, we see that in the `scrape_config` we have a list of jobs . So we have a job with name and the following configuration and so on
 
+- Job concept in Prometheus : If I go to `Targets` and I expand one of the `Target` that has 2 processes running, so API Server for example , we have something called `endpoint`. In Prometheus terms an `endpoint` you can scrape are called `Instances` . And the collection of those instance basically scrapes the same application in this case API Server, is called `Job`
 
+  - Intance = An endpoint you can scrape .
+    
+  - Job = Collection of Instances with the same purpose
+  
+  - Each such `endpoint` metrics has `labels` that automatically get edit and injected into the metrics and one of those labels is a job name . So with Job name Prometheus knows how to group them together. So we have job API server and here as well, job API server . So those 2 belong to the same job
 
+- I will copy the `monitoring-kube-prometheus-apiserver` and paste in the configuration . I will see the name of the job for the API server . And that means whenever we are searching for `metrics` and let's do  `apiserver_request_total` and execute in every metric you will see lots of `labels` and one of them always be a job name that acutally scaped this `metric` and I can also filter each metric by its job name  . And I can also filter each metric by its job name `apiserver_request_total{job="apiserver"}` . Basically if the same metric was scraped by multiple different jobs , You can actually filter that metrics results for specific job .
 
+  - And in the addition to job `label`, every metric will also have an instance label representing the endpoint or the instance from which that metric was actually taken or scraped
 
+  - I can filter for specific endpoint `apiserver_request_total{instance="192.168.153.237:443"}` to get the result of this specific endpoint
 
+Prometheus UI can be very helpful in debugging, filter the metrics seeing the targets and jobs as well as the whole Prometheus configuration . However Prometheus UI is not an ideal tool for visualizing the data to see the actual anomalies, like to see how your CPU usage is over time or how much the or how much the number of requests my application is actually changing over time for that we need Grafana
 
+## Introduction to Grafana UI
 
+Grafana can access all the `metrics` that Prometheus have and then let us see them in nicely visualize way with diagrams, graphs, tables, etc ...  
+
+I will do `kubectl port-forwarding service/monitoring-grafana -n monitoring 8080:80 &` to access Grafana UI in my localhost
+
+The helm chart of Prometheus stack is configured with login credentials . 
+
+- username : admin
+
+- password: prom-operator
+
+In Grafana I basically work with Dashboard . 
+
+Dashboard is a page of visualizing your data and I have the list of dashboards 
+
+If I go to Dashboard I will see a lists of Dashboard in Grafana which was configured by default in this helm chart that we deployed and the dashboards are actually grouped together or organized in folders
+
+Now we have 1 folder which is `General` folder . We can also create new one 
+
+And inside that folder I have bunch of dashboards, I can also create a new Dashboard insde an existing folder 
+
+Lets look at Kubernetes / Compute Resources / Cluster Dashboard 
+
+To go through how the dashboards are actually made up and I can create all of these myself as well, on a dashboard view I can have multiple rows, so if I add 2 rows here, I can see that a row is one grouping of different data . I can then group the data into each row based on what the data is, so we can have 
 
 
 
