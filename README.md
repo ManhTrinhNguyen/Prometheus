@@ -2,7 +2,7 @@
 
 - [Introduction](#Introduction)
 
-  - [Why use Prometheus ?](#Why-use-Prometheus-?)
+  - [Why use Prometheus](#Why-use-Prometheus)
  
   - [Prometheus Architecture](#Prometheus-Architecture)
  
@@ -42,7 +42,7 @@ Prometheus was created to monitor highly dynamic container environment like Kube
 
 However it can be used in the traditional non-container infrastructure, where I have just bare servers with application deployed directly on it 
 
-#### Why use Prometheus ? 
+#### Why use Prometheus
 
 Modern Devop is becoming more and more complex to handle manually, and therefore need automation . 
 
