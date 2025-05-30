@@ -43,6 +43,14 @@
   - [Prometheus UI](#Prometheus-UI)
  
   - [Introduction to Grafana UI](#Introduction-to-Grafana-UI)
+ 
+  - [Create my own Dashboard](#Create-my-own-Dashboard)
+ 
+  - [Resource Consumption of Cluster Nodes](#Resource-Consumption-of-Cluster-Nodes)
+ 
+  - [Test Anomoly](#Test-Anomoly)
+ 
+  - [Configure Users and Data Sources](#Configure-Users-and-Data-Sources)
 
 ## Introduction
 
@@ -483,9 +491,111 @@ These diffent pieces of information here that we can display on their own or in 
 
 In most cases for the common scenearios such as CPU and storage memory monitoring we have these out-of-box dashboard that you can use in a ready form 
 
-Structure Summary : We have Folder that have multiple dashboard, the Dashboard is made up of rows which one or more `panels` inside . So that's how the structure of  data can look like 
+Structure Summary : We have Folder that have multiple dashboard, the Dashboard is made up of rows which one or more `panels` inside . So that's how the structure of data can look like
+
+We see that CPU and memory usages are are display in graphs where I see per `namespace` how much CPU or Memory  is used the Cluster . 
+
+I also have table view tell me per `namespace` how many pods, the CPU usage per namespace or memory usage per `namepsace` 
+
+When we observe these values, what we are looing for are anomalies, when there are spikes or out of ordinary behavior instead of this consistent average flow. 
+
+- If I see sudden CPU or memory spikes here on these graphs, that would be an indicator that something werid is happening in the cluster and you might want to take a look at this . If spikes continues for a couples of seconds of minutes, then I would have to take some action to fix that issue in the Cluster. Otherwise the Application may not work anymore and my application may not be available to users
+
+Let's say in this Cluster overall CPU and RAM usage view, I see that we have a spike in the CPU something is happening in the cluster . I want to drill down to what node and which Pod or which application specifically is responsible for that spike . So I have other dashboard as well where I can see more detailed information 
+
+If I switch back to the list of dashboard and go inside compute resources node with the pod breakdown . We have multiple `panels` for CPU and Memory . 
+
+- Bcs of the Spike we can see here a breakdown to different pods and how much CPU they are consuming or using in a table view or graph view here for specific node. We can switch to another Node bcs different pods are running on different Nodes
+
+- This could help me really identify which application or which pod is causing that load on the cluster
+
+- On the top I also have the time frame collection . By default I always see the data for the last hour but let's say if the anomaly happned overnight, I obviously want to go back in time and see the graph of CPU usage or number of requests or whatever in that time frame
+
+- I can also select at specific time
+
+- If I click inside in one of those panels and click edit, I will see a view with a PromQL, query in the background . This is basically the PromQL language . Which is basically a query language for Prometheus . And using PromQL, I can get data from Prometheus and then Grafana will use that data to visualize it in any form that I want like table or graph etc ...
+
+#### Create my own Dashboard
+
+If I want to create my own dashboard , then I will have to write PromQL queries here or alternatively, I can use this metrics browser which lets me select these metrics, as well as respective labels for that metrics and basically execute the query 
+
+Alternatively I can pick any metrics from the list, which is the same as we saw in Prometheus UI 
+
+It require me to basically know what metrics, labels to select, etc ...  
 
 
+#### Resource Consumption of Cluster Nodes
+
+Another dashboard that gives us a high level overview of resource consumption in the Cluster for each Cluster Node and that's going to be `Node Exporter / Nodes`.
+ 
+This I can also see the CPU and Memory usage, Storage and network usage in the Cluster per node 
+
+If every is a straight line it mean there are no anomalies here, everything just average . 
+
+Different metrics information will be relevant for different IT teams, so for example someone who is operating the cluster or managing the servers underlying infrastructure of the cluster maybe interested more in the networking information and someone who is operating  the Kubernetes cluster itself and taking care of the applications inisde will be more interested into information about the workload inside the cluster or information about the individual about pod and application 
+
+#### Test Anomoly
+
+I will produce some anomaly in the cluster . We will trigger a CPU spikes so that we can see how it's visualized or displayed in the dashboard in Grafana and how we can then pingpoint that spike or where it's coming from exactly and we will that pretty easily by just executing a simple script that hits the endpoint of our online shop in a loop, so bascially 10000 requests to my online shop application and as a result we should see some spikes in the cpu usage 
+
+I will deploy simple pod in my cluster, an image that executes curl command, so this will simulate an application inside the cluster making a bunch of requests to another application inside the cluster, so we will see the total load on the CPU . `kubectl run curl-test --image=radial/busyboxplus:curl -i --tty --rm`
+
+- `--image=radial/busyboxplus:curl`: This image can be use for using curl
+
+- `-i` : In teractive mode
+
+- `--tty`: Allocates a TTY (terminal interface) — makes your session feel like a normal shell
+
+- ` --rm`: remove the pod when we done
+
+The command above will give me a terminal inside that pod : 
+
+- Now I am inside the busy box I will execute the simple script that will hit  the endpoint of our application 10000 times
+
+- To create a script : `vi curl-test.sh`
+
+```
+for i in $(seq 1 10000)
+do
+  curl <my-endpoint> > test.txt
+done
+```
+
+- `> test.txt` to avoid literring our command line interface with a bunch of outputs of html . So I pipe that whole thing into text file
+
+- Make it executable `chmod +x curl-test.sh`
+
+- Once my script curl endpoint is  done we see this CPU spike on the graph that basically lasted for about five minitues, the memory usage didn't change much during that time and if we go to another dashboard with the pod breakdown and I can see some of the different pods that have seen using the allocated resources on the graph here the catalog service and redis cart have spiked . So I can take a look at the break down per pod and see which individual pods are consuming CPU resources, like recommendation service and the Prometheus monitoring pod
+
+- If select other Node the I will see the cart service, the front end pod and the curl test pod which was the one generating all the request and we have the spike as well
+
+- Bottom line here is that I don't have to become an expert in reading all the graphs and analyzing what each one of them means, the goal is to decide what exactly I want to monitor in the Cluster and basically identify the behavior that I want to observe for anomalies, in this case like CPU spikes, Ram spikes, storage space remaining and so on  
+
+#### Configure Users and Data Sources 
+
+2 more things about Grafana 
+
+First I have multiple team members who need access to the Grafana dashboards as an admin I can configure users in Grafana in the configuration view or server admin view or server admin view as well as teams and their access to the dashboards
+
+And the second thing is how Grafana gets the data from Prometheus bcs we haven't configured Prometheus endpoint for Grafana, so how does Grafana know how to talk to Prometheus or on which endpoint it should talk to Prometheus 
+
+ - That is configure on `Connections` and `Data Sources`
+
+`Data Soruces` which have been automatically configured in this Helm Chart, so we have the default Prometheus source that points to the service name or the internal service endpoint of Prometheus server in the Cluster on port 9090
+
+And then we have another source for the Alert Manager which is running on port 9093
+
+Basically in the dashboards I can only visualize the data from the data sources that I have configured  and I can add new data sources to my Grafana, so I can basically visualize  data from different or multiple data . And Prometheus is just one of the many data soruce types that Grafana support 
+
+We have different time series database , we also have loggin and tracing services as well as SQL database and cloud services . As well as SQL Databae and Cloud Services . Basically all of these databases or data services can be configured with Grafana . So I can fetch the data from the mand visualize them in dashboard in Grafana 
+
+Grafana is actually a general purpose data visualization tool and Prometheus is just one of the many data sources that it works with and also based on the data source that I have configured for Grafana and that I am using to build my dashboard, if we go to explore, the queries will be totally different 
+
+- From here if I had multiple data soruce I could choose one of them and based on which one I select here the query will look different
+
+- PromQL is obviously a query language from Prometheus, if it was a MySQL or PostgreSQL database I have have a SQL query here
+
+- For elastic data source I will have something specific for elastic search and so on 
 
 
 
