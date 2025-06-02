@@ -52,7 +52,7 @@
  
   - [Configure Users and Data Sources](#Configure-Users-and-Data-Sources)
  
-- [Alert Rules in Prometheus](#Alert Rules in Prometheus)
+- [Alert Rules in Prometheus](#Alert-Rules-in-Prometheus)
 
   - [Existing Alert Rules](#Existing-Alert-Rules) 
 
