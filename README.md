@@ -54,7 +54,11 @@
  
 - [Alert Rules in Prometheus](#Alert-Rules-in-Prometheus)
 
-  - [Existing Alert Rules](#Existing-Alert-Rules) 
+  - [Existing Alert Rules](#Existing-Alert-Rules)
+
+- [Create own Alert Rules](#Create-own-Alert-Rules)
+
+  - [First Rule](#First-Rule) 
 
 ## Introduction
 
@@ -718,6 +722,57 @@ annotaions:
 - `summary`: summarize what iusse we are alerted about 
 
 That basically is how alert look like. This will be a structure for any alert rule if I look through them, each one has the same attributes
+
+## Create own Alert Rules
+
+First I will be when the CPU usage exeeds 50% on the Kubernetes node, and the second one will be  when a pod cannot start (When we have apod not in a running state but Crashbackloop)
+
+#### First Rule 
+
+In the `/monitroing` folder . I will use this folder to create all my monitoring related configuration files . So that's where we will create our alert rule 
+
+Create a file call `touch alert-rule.yaml` . And the structure we will going to have is going to be basically the same attribute , just change the value 
+
+```
+name: HostHighCPULoad
+expr: 100 - (avg by(instance)) (rate(node_cpu_seconds_total{mode="idle"}[2m]) * 100) > 50
+for: 2m
+labels:
+  severity: warning
+  namespace: monitoring
+annotations:
+  description: "CPU load on Host is over 50%\n Value = {{ $value }}\n Instance = {{ $instance }}"
+  runbook_url:
+  summary: "CPU load on Host is over 50%"
+```
+
+- `expr: 100 - (avg by(instance)) (rate(node_cpu_seconds_total{mode="idle"}[2m]) * 100) > 50` . We have this metric `node_cpu_seconds_total` that we are starting with. It is a node CPU seconds total with a bunch of output where the difference is mainly in the `mode` . So we have different `mode` for our `node_cpu_seconds_total` and one of them is `idle` This mean the CPU is not being used . Bascially with `node_cpu_seconds_total{mode="idle"}` we are saying how much of the CPU is `idle`. The more CPU is `idle` the less we are using. However for that value, we want to acutally average per second over a period of 2 minutes `rate(node_cpu_seconds_total{mode='idle'}[2m])` this will give me a rate, so not the actual value of the `idle` CPU, the average rate over 2 mins intervals . And we have values for each `instance`, Each `instance` has 2 CPU or 2 Core . And bcs we want to measure the CPU usage per host, we have to group them by instance . We have to group them by `instance` . basically we want to see what is the average `idle` time of CPU per node by calculaitng average for both CPU cores for the same `instance`
+
+  - `(avg by(instance)) (rate(node_cpu_seconds_total{mode="idle"}[2m])` so for each `instance`, so this is one instance with 2 CPU cores, the average of these 2 values will be calculated, And for the second instance, average of these 2 value
+ 
+  - Once I execute this, I will see the average for each instance of being `idle`
+ 
+  - And to get the percentage value of average we will multiple this by 100 `(avg by(instance)) (rate(node_cpu_seconds_total{mode="idle"}[2m]) * 100)` . Then I will have an average `idle` time of the node, whihc mean our nodes are underutilized, basically `idle` most of the time . From this value we will get the acutual usage or utilization per instance . So total CPU usage is 100% and we basically will deduct this value from 100 and that will be it `100 - (avg by(instance)) (rate(node_cpu_seconds_total{mode="idle"}[2m]) * 100)`
+ 
+  - Both instances are utilized by less than 10% on average . This is just a value . Now we need to acutally add logic to this expression to say, if this value is over 50% then fire an alert `100 - (avg by(instance)) (rate(node_cpu_seconds_total{mode="idle"}[2m]) * 100) > 50`
+
+- Now When do we acutally trigger alert . Do we wait some time to let the CPU usage go down or do we trigger it right away
+
+  - Let's say we decide, 50% isn't that high, so we can give it 2 mins to see whether it decreases again and goes below 50% . If it doesn't for 2 full minutes `for: 2m`, then we will trigger an alert
+ 
+- If it only 50% I will give this a severity of warning `labels: severity: warning`
+
+- Finally we have our message contents with description and summary
+
+   - `summary: "CPU load on Host is over 50% "` : We can even grap the acutal value of what the CPU usage is bcs it could be 60%, or it could be 80% . Maybe want to notify our team meber exactly what that CPU load is, for that we can do `summary: "CPU load on Host is over 50%\n Value = {{ $value }}\n"` . This `value` variable available for us
+ 
+   - For our alert we can remove the `runbook_url`. If we have a `runbook_url` whoch describes the issue and possible fix for that we can add that as well . Good practice to inlucde `runbook_url`
+ 
+  - What we could also add in the message is the acutal instance that is affected, so we can say that's the value for isntance `description: "CPU load on Host is over 50%\n Value = {{ $value }}\n Instance = {{ $instance }}"`
+ 
+- We can add addition labels to our alert rules, so i will add the label `namespace: monitoring` . Which we going to use later to target this specific alert rule inside the alert manager configuration 
+
+
 
 
 
