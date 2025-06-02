@@ -51,6 +51,10 @@
   - [Test Anomoly](#Test-Anomoly)
  
   - [Configure Users and Data Sources](#Configure-Users-and-Data-Sources)
+ 
+- [Alert Rules in Prometheus](#Alert Rules in Prometheus)
+
+  - [Existing Alert Rules](#Existing-Alert-Rules) 
 
 ## Introduction
 
@@ -597,13 +601,123 @@ Grafana is actually a general purpose data visualization tool and Prometheus is 
 
 - For elastic data source I will have something specific for elastic search and so on 
 
+## Alert Rules in Prometheus
 
+Now we have dashboards in Grafana that shows us the animalies and lets us visualize the data that we are interested in, but in reality, me and my team members who are resposible for monitoring the cluster resources and that everything bascially run properly inside, will not be sitting in front of the screen and waiting for any anomaly in my data to happen 
 
+Ideally when something happens in my Cluster some weird behavior or something suspicious, I want to be notified immediately per email or a Slack message or some other way that something happened that need my attention 
 
+This part of monitoring, we will configure our monitoring stack to basically notify us whenever something unexpected or not desirable happens in the cluster (Notify CPU usage more than 50%, Pod can not start, or Application isn't available in the cluster)
 
+1. Define what we want to be notified about (Alert Rules in Prometheus Server).
 
+- Send notification - When CPU usage more than 50% , or When Pod cannot restart
 
+2. Send notification (Configure Alert Manager) to an Email for that we will configure an application, which is part of Prometheus stacked called Alert Manager
 
+Alert Manager will be the one will send out an alert describing what actually happended in the Cluster and to take some action 
+
+Based on the Grafana dashboard we, we saw an average CPU usage in our cluster per Node . So we know what a normal usage for our service looks like from the dashboard 
+
+Based on the data we can decide, normally CPU usage in our Cluster is pretty low so if at any point it exceeds 50%, we know something weird is going on in the cluster 
+
+We will configure first Alert Rule that says alert when CPU usage over 50% . How do we actually create an alert rule or how does it acutally look like ? 
+
+- By default when we install a Prometheus stack, we actually get some alert rules already out of the box
+
+#### Existing Alert Rules 
+
+This is Alert Rules that Prometheus created for us 
+
+Back to Prometheus UI -> Click on Alert we will see a list of already configured alerts that we already have from this stack and they are grouped by the name. So we have `alermanager.rules` group . We have `config-reloaders` group and `etcd` group and so on ... And in each groups we have alert rules 
+
+And most of these rules that I see are actually for Prometheus stack applications themselves . So we have a bunch of alert rules for the alert manager application. So whenever alert manager application fails to reload or it fails to send alers to configured notification channel or if the alert manager configuration is inconsistent, etc 
+
+And then we have a bunch of rules for `etcd` which is a `Control Plane` service in Kubernetes . 
+
+We also have alert rules, which are actually pretty helpful for us, which are grouped under `kubernetes- apps`. Basically these are the rules for Kubnernetes resources like pods, deploymentsm stateful set, etc ... 
+
+- For example we have `KubePodCrashLooping` or `KubePodNotReady` rules . Bascially if that happens with any of the pod this alert will be triggered
+
+- If stateful set replicas do not match . We have 3 Stateful Replicas configured, but there is only 2 replica pods running this alert will be trigger.
+
+However, I see that most of these alerts are green and that means alerts are inactive or these conditions haven't been met in the Cluster . So nothing or no alerts gets fired  . So these alers are not happening or are not being fired in the Cluster that's what `Green Status` mean .
+
+Whenever alert is `red`, it's in a firing state, which means that whatever that alert rule alert about has happended in the Cluster . `KubeSchedulerDown` and that's why rthe alert is firing 
+
+`Firing` mean alert has happened or whatever the alert rule describe has happened And Prometheus basically fired that alert towards the Alert Manager so that Alert toward the `Alert Manager` so that Alert Manager can notify us and alert us about what has happened 
+
+How does a syntax of alert rule configuration actually look like ? 
+
+If I expend any of the alert rules, I will see the configuration syntac for that specific alert rule (This is the main configuration) 
+
+- `name` Which is a descriptive of what we want to be alerted about
+
+- `expr` The main part of any aler rule which is the `expression` .
+
+  - `expr: max_over_time(alermanager_config_last_reload_successful{job="monitoring-kube-prometheus-alertmanager", namespace="monitoring"}[5m]) == 0`
+
+  - If we know from programming languages, we have these logical expressions like if this and this equals whatever, then and have a logic there . That is basicaclly the same concept
+ 
+  - The `expression` tells us if `Alert Manager` failed to reload, and then fire the Alert . And the `expression` here is defined in PromQL . This is actually a Prometheus query that expresses the logic of alert Manager failed to reload or alert manager failed to send alerts
+ 
+  - PromQL is not a very intuitive or easy query language . Just need to understand the basic will obviously help to at least be able to read existing expressions if I am not able to create them
+ 
+  - Break it down, we always have a metric inside an expression alert manager config last reload successful . that's a metric which is available for us `alermanager_config_last_reload_successful` in Prometheus UI . And then we have the `Filter` on that metric `{job="monitoring-kube-prometheus-alertmanager", namespace="monitoring"}` also in the same page . Filtering on these two attribute or two labels, since as we know each metric has a bunch of `labels` which are are highlighted . We just have one instance here but if we have 100 instance with these `labels`, but different values then we could basically filter them using this label key value pair
+ 
+    - Then on that filtered `Metric`, we apply a function, a Prometheus function that we have available from Prometheus, which you can always look up in the Documentaiton (https://prometheus.io/docs/prometheus/latest/querying/functions/)
+   
+    - `max_over_time()` this tell us that we get the maximum value from the returned result max over time . And bcs we are asking for maximum value over time, we also have to specify that time that will be `[5m]` 5 minutes .
+   
+    - Once I exected this will give us a value of `1` . So in 5 mins of times, we are getting the maximum value of this metric or alert manager in the `namespace=monitoring`
+   
+    - The value is `1` that mean we have a successful relaod if it's   `0` then we don't have the successful reload in that recent time and that is `== 0`
+   
+    - If we don't have `1` but `0` it means alert manager was not able to successfully reload . So Alert Manager failed to reload and that will be an alert
+   
+    - But if we execute this filter here, we see empty query results, which means this did not happen in a cluster . Alert manager hasn't failted to reload that is why the alert is green
+
+    - That's basically how each expression is put together . So we start, we always start with a basic metric like `alertmanager_notification_failed_total` etc... and  then we do Filter on it and function around it
+   
+    - Let's take the `alertmanager_notification_failed_total` metric and rebuild it . We have a couple of results  where each result has a different notification channel `integration` could be email, slack, discord .... or to my own custom endpoint `integration` . And we see that the values are `0`, so we don't have any failed notification . Again we have a filter here for `job` nmae and `namespace=monitoring` which i  basically the same for all of these entry
+   
+    - IF I copy this and add a filter `alertmanager_notifications_failed_total{job="monitoring-kube-prometheus-alertmanager", namespace="monitoring"}[5m]` and execute we should have the same result, bcs each metric entry has these `labels` with these values . With this `exp:(rate(alertmanager_notifications_failed_total{job="monitoring-kube-prometheus-alertmanager", namespace="monitoring"}[5m]))`is calculates an average rate of failed notifications for `alert manager` and comparts it to the total amount of notifications that alert manager send to basically calculate how many or how much `%` of the notification or alert have failed if this `> 1% or 0.01` then it gonna `fire` . It say hey we have too many fail notification here . We should notify someone
+   
+Another the question is we want to create lots of different alert rules, but some of them will be more important than others . So if the application is not  accessible that could be much more urgent to fix thatn if a request to an application is slow . For that in a Alert Rule we have a `critical` alert or just a `warning`
+
+```
+labels:
+  serverity: critical 
+```
+
+- Each Alert rule will have a `serverity` labels .
+
+- However we can add additional labels to each alert rule besides the `severity` labels to be able to identify and group together different alert rules in alert manager when we send it out
+
+- Why would need to group together different rules by labels . We could have a use case where we want to send all the rules that are critical to select channel and all the alerts that are warning to email or we may add labels to alert rules that basically says which application it belong to, or which namespace it belongs to etc . And then say all the alerts that belong to `namespace=<something>` should be sent to this select channel, or all the alerts that have label with this application should be sent to this specific webhook URL . That's what label are for to target alerts rules specifically
+
+Now when an Alert happens, Another thing we need to decide on is do we actually send the alert righ away, or do we wait for sometime to see maybe the thing that the Alert Rule is warining about basically solves itself 
+
+- For example `AlertmanagerFailedReload` happen that alert manager application dies and it cannot reload . However because Kubernetes has all these self-healing, automatically restarting features, it could be that within next couple of minutesm the application manages to reload without our manual interaction .
+
+- Basically when the alert happen, put it in the pending state but i am going to give you sometime to see whether cluster can heal itself and bascially solve this condition by itself . And we can define the time that we give to the alerts with `for: 10m` attribute . So for 10 mins we will see whether this condition resolves itself . If it hasn't resolved after 10 minutes, then fire an alert, bcs it means that cluster was not able to solve this issue by itself we need some manual interaction . Depending on Alert rule and what exactly is happening, we can set this value to 10 minnutes or 5 minutes or even lower . So that's what the `for` label for 
+
+Finally when the alert acutally gets fired, so it's in firing state and it get sent to our email or Slack channel, What will the Alert actually say . It has to deliver a message that say . Hey this and this has happended, that's why I am alerting you . So that message contents are configured like this 
+
+```
+annotaions:
+  description: Configuration has failed to load for {{$labels.namespace}}/{{$labels.pod}}
+  runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerfailedreload
+  summary: Reloading an Alertmanager configurtion has failed 
+```
+
+- Where is `{{$labels.namespace}}/{{$labels.pod}}` come from ? We saw that each Alert `expression` is based on `metric` . The `metric` itself has a bunch of `labels`, including the container name, the pod name, namesapce and service event . We can access all this information in our alert rules
+
+- `runbook_url` is basically points to a URL that explain the error or the issue that we are alerted about, as well as possible fix for this issue . (https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerfailedreload) this one point to a Github repository for Kubernetes alert runbooks
+
+- `summary`: summarize what iusse we are alerted about 
+
+That basically is how alert look like. This will be a structure for any alert rule if I look through them, each one has the same attributes
 
 
 
