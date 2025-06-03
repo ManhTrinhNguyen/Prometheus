@@ -58,7 +58,13 @@
 
 - [Create own Alert Rules](#Create-own-Alert-Rules)
 
-  - [First Rule](#First-Rule) 
+  - [First Rule](#First-Rule)
+ 
+- [Alert Rule for Kubernetes](#Alert-Rule-for-Kubernetes)
+
+  - [Write 2nd Alert Rule](#Write-2nd-Alert-Rule)
+ 
+  - [Apply Alert Rules](#Apply-Alert-Rules)
 
 ## Introduction
 
@@ -772,8 +778,155 @@ annotations:
  
 - We can add addition labels to our alert rules, so i will add the label `namespace: monitoring` . Which we going to use later to target this specific alert rule inside the alert manager configuration 
 
+## Alert Rule for Kubernetes 
+
+How to configure Alert Rule in Prometheus 
+
+A context or background how these works or how does Prometheus know about these Alert Rules, we can go to Prometheus UI -> Status -> Configuration -> Right under `rule_files:` we have a actual rule file `etc/prometheus/rules/prometheus*/*.yaml`. This is where all the Alert Rule are defined 
+
+However we don't have to go there and adjust the `Configmap` or `Secret` or whatever this is and add our alert rule there and reload Prometheus so it picks up our new Alert Rule . We don't have to do that bcs we have Prometheus running in Kubernetes Cluster as a `Prometheus Operator` .
+
+- `Prometheus Operator` let us create custom Kubernetes components which are defined by `CRDs`, to create alert rules, so that `Operator` will then go to Prometheus and say there is a new Alert Rule that you need to pick up or load in and add it to your configured list of Alert Rule and this means that if we didn't have Prometheus running inside Kubernetes Cluster using this Prometheus Operator, we would actually have to go to the Prometheus configuration file and whatever the rule files points to and actually add our rule in this exact structure to that file and then reload Prometheus
+
+- `Prometheus Operator` extand Kubernetes API and let us create custom Kubernetes Resources which basically look like any other Kubernetes configuration file and in the background, Operator will then take our custom resource with the Alert Rule that we configured and tell Prometheus, go ahead and reload the configuration bcs there is a new alert rule (All of that happen in the background), which is a big conveience for us bcs we don't have to learn K8 configuration syntax and do stuff inside  
 
 
+Let's see how that custom Kubernetes resource for creating Alert rule actually looks like: 
+
+```
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: main-rules
+  namespace: monitoring
+spec:
+  groups:
+  - name: main.rules
+    rules:
+    - alert: HostHighCpuLoad
+      expr: 100 - (avg by(instance)) (rate(node_cpu_seconds_total{mode="idle"}[2m]) * 100) > 50
+      for: 2m
+      labels:
+        severity: warning
+        namespace: monitoring
+      annotations:
+        description: "CPU load on Host is over 50%\n Value = {{ $value }}\n Instance = {{ $instance }}"
+        runbook_url:
+        summary: "CPU load on Host is over 50%"
+```
+
+Bcs this is a API from Prometheus Operator, that extend Kubernetes API so this will be `apiVersion: monitoring.coreos.com/v1`
+
+The resource, the custom resource name for Alert Rule in Prometheus stack is called `kind: PrometheusRule`
+
+Then we will have `metadata` with `name: main-rules` and `namespace: monitoring` 
+
+`Spec` Specification is different for each Kubernetes resource, whether it is a native resource like Pod, Deployment, Service or a custom resource (How to know what Attributes this custom Prometheus rule expects from us ? Where to see ?)(https://docs.redhat.com/en/documentation/openshift_container_platform/4.13/html/monitoring_apis/prometheusrule-monitoring-coreos-com-v1))
+
+- In the docs I see the `spec` has `group` attribute
+
+```
+groups:
+  - 
+```
+
+- This is a syntax for array in Yaml
+
+- Inside `.spec.groups` we have `name` of the group . The group will look somehow like this `alertmanager.rules` . We have the way to group our Alert Rule logically
+
+- Another attribute required is `rules` . This is also an array . All attribute I can see in the docs
+
+  - I will take the Alert Rule that I created above And add that in
+
+So we have our Prometheus rule, custom resource that we can create in Kubernetes just like we create any other Kubernetes resources and this is a way more convenient way of creating alert rules and adding them to Prometheus rather than working this config map and secret configuration, This gives us a really flexibility of creating and then removing the Alert rules without ever touching the Prometheus configuration file
+
+!!! NOTE: If you go and change the rules file manually which you could actually do , you can grap the value here and you can adjust it and save it back . Prometheus operator will automatically rewrite the changes and basically remove what I have added it, it will automatically reload the rule file so my changes will be gone, so it means that we can't even adjust this manually even if we wanted to with Prometheus Operator, which is a good thing that it doesn't acutally allow from manual configuration changes 
+
+#### Write 2nd Alert Rule 
+
+ We can add another the one in the same Prometheus rule definition bcs as we saw rules is an array so it lets us create multiple rules with one resource 
+
+```
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: main-rules
+  namespace: monitoring
+  labels:
+    app: kube-prometheus-stack
+    release: monitoring
+spec:
+  groups:
+  - name: main.rules
+    rules:
+    - alert: HostHighCpuLoad
+      expr: 100 - (avg by(instance)) (rate(node_cpu_seconds_total{mode="idle"}[2m]) * 100) > 50
+      for: 2m
+      labels:
+        severity: warning
+        namespace: monitoring
+      annotations:
+        description: "CPU load on Host is over 50%\n Value = {{ $value }}\n Instance = {{ $instance }}"
+        runbook_url:
+        summary: "CPU load on Host is over 50%"
+     - alert: KubernetesPodCrashLooping
+       expr: kube_pod_container_status_restarts_total > 5
+       for: 0m
+       labels:
+         severity: critical
+         namespace: monitoring
+       annotations:
+          description: "Pod {{ $labels.pod }} is crash looping\n Value = {{ $value }}"
+          summary: "Kubernetes pod crash looping"
+```
+
+I will create another `alert` and this alert for alerting whenever pod cannot be started or when a pod is in a crash looping status 
+
+Going back to Prometheus UI we have a metric called `kube_pod_container_status_restarts_total` this basically tell us how many times a container has restarted with this value . 
+
+- Whenever we have a pod that has a container inside that basically keeps restarting on and on and that number or total number of restarts exceeds five `kube_pod_container_status_restarts_total > 5` then we want to send an Alert saying hey there is a container thet keep restarting bcs there is some problem with the application and it cannot start  `expr: kube_pod_container_status_restarts_total > 5`
+
+Let's say we want to trigger it right away when this happen `for: 0m`
+
+I will add some `labels` bcs this super critical we can add `severity: critical` bcs we can not afford application downtime 
+
+Then I can have description to describe a bit more detail . 
+
+- We can even send the name of the pod that has this issue by grabbing the value of the pod label which we in the UI . For each cube pod container status restart total metric we can access it using labels `{{ $labels.pod }}` . We can send the value of how many time it has restarted already . And that's going to be the value `{{ $value }}`
+
+- `summary` which is like title of the issue when it arrives in my email or slack channel or whatever notification channel 
+
+With that we have configuration ready to add new alert rules . However for Prometheus Operatir to automatically pick up our Prometheus rule we need to add some labels in the `metadata` level. Using these `labels` Prometheus operator will be able to identify the Prometheus rules that we want to add to Prometheus and basically pick them up automatically and Prometheus will try to match any Prometheus rule resources that have these `labels` to automatically pick them up
+
+- As you already know from the Kubernetes module one of the main usage of `labels` is to identify or to label some of the resources so other Kubernetes resources can match those `labels`
+
+- The same concept here we are labeling our Prometheus rule and then Prometheus will match those 2 labels and know okay this is a alert rule then I need to pick up and basically add it to my configuration 
+
+#### Apply Alert Rules 
+
+To apply the alert rule file `kubectl apply -f alert-rule.yaml` . We don't need to specify `namespace` bcs we already defined in YAML file 
+
+Now I do `kubectl get PrometheusRule -n monitoring` I should see a bunch of Prometheus rule  resources in a Cluster which actually correspond to this  out of the box alert rule in the UI like `alertmanager.rules`
+
+And on top of that we have `main-rules` is the one that we just created . This is a acutal resource that I can get edit and so on inside the Cluster 
+
+Now since we created this Prometheus rule we acutally expect that Prometheus operator which is actively listening for any new Reosurces like Prometheus rule or whatever is on the list, Created inside the Cluster to automatically pickup our new rules and tell Prometheus to reload the configuration and add these alert rules to its list and that mean we should actually be able to see our alert rules . It may take some time but enventually they will appear on this list . 
+
+There is also a way to debug that Prometheus reloaded the configuration with new rules to make sure that operator picked up or addition and basically told Prometheus to do that and we can do that by checking logs of Prometheus pod and this will be very interesting place to troubeshoot or check to make sure configuration is reloaded properly so if I do `kubectl get pod -n monitoring` I have the Prometheus monitoring pod here with 2 containers and as you remember we have the Prometheus application itself and we have this helper or sidecar container that basically its only purpose is to reload the configuration automatically whenever these kind of changes happen 
+
+If I do `kubectl logs prometheus-monitoring-kube-prometheus-prometheus-0 -n monitoring` and we gonna have 2 container I have to specify which containers logs i am interested in `kubectl logs prometheus-monitoring-kube-prometheus-prometheus-0 -n monitoring -c config-reloader` and check the logs of config-reloader to see whether this application actually reloaded the configuration
+
+- `-c` is for container
+
+- And I can see today the reload was triggerd at the date of today
+
+- The Prometheus rule file which is mounted inside the container was basically reloaded that means that Prometheus should actually have our Alert Rules we can also check the logs of the Prometheus itself `kubectl logs prometheus-monitoring-kube-prometheus-prometheus-0 -n monitoring -c prometheus` for today and I can see the msg completing loading of configuration file
+
+So in the Prometheus pod container logs we saw that configuration was reloaded successfully since our Prometheus rule resource was matched on those labels and now we should actually be able to see those 2 rules that we added in Prometheus UI alerts . 
+
+- Now I can see `main.rules` group which is the name of the group And we have `HostHighCpuLoad` and `KubernetesPodCrashLooping`. If I expand this I can see the configuration
+
+So whenever these condigtion are met which means either we have a high CPU load over 50% or we have a pod in a Cluster that is crashlooping the alert  the alert will be fired 
 
 
 
