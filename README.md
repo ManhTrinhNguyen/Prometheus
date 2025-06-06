@@ -65,6 +65,8 @@
   - [Write 2nd Alert Rule](#Write-2nd-Alert-Rule)
  
   - [Apply Alert Rules](#Apply-Alert-Rules)
+ 
+  - [Test Alert Rule](#Test-Alert-Rule) 
 
 ## Introduction
 
@@ -927,6 +929,51 @@ So in the Prometheus pod container logs we saw that configuration was reloaded s
 - Now I can see `main.rules` group which is the name of the group And we have `HostHighCpuLoad` and `KubernetesPodCrashLooping`. If I expand this I can see the configuration
 
 So whenever these condigtion are met which means either we have a high CPU load over 50% or we have a pod in a Cluster that is crashlooping the alert  the alert will be fired 
+
+#### Test Alert Rule 
+
+Now I will trigger the `HostHighCpuLoad` rules to see that my Alert actually get fired or get into the firing state 
+
+I will simulate a CPU load in my Cluster to trigger this alert . I will do that by deploying a pod in our Cluster that has an Application inside that simulates CPU loads 
+
+Before we do that I will update our dashboard so that we can see the CPU utilization as a `%` to make it easier to see when the alert is going to be triggered 
+
+Now I will go to DockerHub to get a `cpustress` image . It simulates a CPU stress inside a Docker container (https://hub.docker.com/r/containerstack/cpustress)
+
+We will deploy this container in a pod in my Cluster that will generate a CPU stress, which should be over 50% . 
+
+I have the Docker run command `docker run -it --name cpustress --rm containerstack/cpustress --cpu 4 --timeout 30s --metrics-brief`. I will translate this command into a kubectl command bcs I want to create a Kubernetes pod . `kubectl run cpu-test --image=containerstack/cpustress -- --cpu 4 --timeout 30s --metrics-brief`
+
+- ` --cpu 4 --timeout 30s --metrics-brief` These are options to this application which is running inside that container
+
+- To pass any parameter or options in `kubectl` to an application which will run inside the pod . `--` whatever come after `--` is then being interpreted as options or parameters for the application inisde the container
+
+- This example of taking Docker command and translate that to a kubectl run command can actually be very helpful whenever I want to quickly deploy some test or debugging or troubleshooting application as a Kubernetes pod inside cluster 
+
+Once I executed that command this will create a pod in default namespace . And soom we will strt seeing the CPU load increasing and will get over 50% 
+
+Now going back to alert rules I see that the `HostHighCpu` load is pending, which mean that the aler condition was actually met and I see that value is over 50% . So that's the CPU load on one of the instances 
+
+Now it is waiting for 2 minutes in a pending state until it actually fires the alert . So if this problem doesn't come below 50% within 2 minutes, the alert will become firing 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
