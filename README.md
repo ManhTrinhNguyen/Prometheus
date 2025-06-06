@@ -66,7 +66,13 @@
  
   - [Apply Alert Rules](#Apply-Alert-Rules)
  
-  - [Test Alert Rule](#Test-Alert-Rule) 
+  - [Test Alert Rule](#Test-Alert-Rule)
+ 
+- [Alert Manager](#Alert-Manager)
+
+  - [Firing State](#Firing-State)
+ 
+  - [Alertmanager Configuration File](#Alertmanager-Configuration-File)
 
 ## Introduction
 
@@ -956,16 +962,142 @@ Now going back to alert rules I see that the `HostHighCpu` load is pending, whic
 
 Now it is waiting for 2 minutes in a pending state until it actually fires the alert . So if this problem doesn't come below 50% within 2 minutes, the alert will become firing 
 
+## Alert Manager 
+
+#### Firing State
+
+Firing State mean . What happended is that Prometheus actually detected, there is high CPU load in the Cluster, so I will fire an alert bcs this condition is met , so Prometheus acutally fired or sent the alert to Alert Manager that what firing state mean 
+
+So Prometheus handed over the alert to Alert Manager and now Alert Manager is the one that needs to acutally send out an alert to an email or messaging service or whatever notification channel I have configured . 
+
+In our case bcs we don't have anything configured in Alert Manager . Prometheus fired an Alert and Alert Manager just ignored it  
+
+Next step I will configure alert manager so that when it acutally gets an alert that is firing, it delivers that message to us through an email  
+
+#### Alertmanager Configuration File 
+
+Alert Manager is its own separate application so Prometheus is one Application, Alert Manager is another application . And that means alert manager has its own configuration configured through a configuration file
+
+Where is Alert Manager configuration and how can we see what currently configured in there just like we see for Prometheus. 
+
+First of all Alert  Manager also has a very simplistic UI which get deployed in the stack . To check on the UI I will do port forwarding `kubectl port-forward service/prometheus-kube-prometheus-alertmanager -n monitoring 9093:9093 &`
+
+It give me a read only view of the configuration as well as a way to filter the Alerts 
+
+If I go to `Status` it give me this will give me configuration and some other information of my Alert Manager 
+
+```
+global:
+  resolve_timeout: 5m
+  http_config:
+    follow_redirects: true
+    enable_http2: true
+  smtp_hello: localhost
+  smtp_require_tls: true
+  smtp_tls_config:
+    insecure_skip_verify: false
+  pagerduty_url: https://events.pagerduty.com/v2/enqueue
+  opsgenie_api_url: https://api.opsgenie.com/
+  wechat_api_url: https://qyapi.weixin.qq.com/cgi-bin/
+  victorops_api_url: https://alert.victorops.com/integrations/generic/20131114/alert/
+  telegram_api_url: https://api.telegram.org
+  webex_api_url: https://webexapis.com/v1/messages
+  rocketchat_api_url: https://open.rocket.chat/
+route:
+  receiver: "null"
+  group_by:
+  - namespace
+  continue: false
+  routes:
+  - receiver: "null"
+    matchers:
+    - alertname="Watchdog"
+    continue: false
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+inhibit_rules:
+- source_matchers:
+  - severity="critical"
+  target_matchers:
+  - severity=~"warning|info"
+  equal:
+  - namespace
+  - alertname
+- source_matchers:
+  - severity="warning"
+  target_matchers:
+  - severity="info"
+  equal:
+  - namespace
+  - alertname
+- source_matchers:
+  - alertname="InfoInhibitor"
+  target_matchers:
+  - severity="info"
+  equal:
+  - namespace
+- target_matchers:
+  - alertname="InfoInhibitor"
+receivers:
+- name: "null"
+templates:
+- /etc/alertmanager/config/*.tmpl
+```
+
+This is a default configuration that Alert Manager currently is operating on
+
+We have 5 main section in the Alert configuration 
+
+- `global` configuration basically just define global configuration for all the receviers for all the `routes`, that's what this section about so we don't have to repeat the same value. So these are kind of like global vairables that apply or can be used throughout the whole configuration 
+
+- We have `route` .
+
+  - We need to tell alert manager which alerts should be sent to which receviers, bcs we may not want to send everything that comes in to 1 recevier . We may want to ignored some of them while sending alert that are from monitoring namespace to an email and maybe send every alert that is coming from a job Prometheus to WeChat channel etc ... So we need some kind of routing for our Alert inisde the Alert manager configuration so we can flexibly decide what alert goes where and for that we have `route`
+ 
+  - The way we target individual Alerts or Groups of Alerts are using this `matchers` attribute
+ 
+  - `matchers` expression for matching alerts with certain labels
+ 
+  - ```
+     - receiver: "null"
+      matchers:
+      - alertname="Watchdog"
+      continue: false
+    ```
+    
+  - This here mean that whenever we have an alert coming from Prometheus inside the alert manager, that has a label called `alertname="Watchdog"` should be sent to `receviver: "null"` which mean should be ignored . This for specifically configuring specifically configuring specific alerts and whatever is defined 
+ 
+  - And then we may have another same section inside the `routes` list that said match any alert that has any label `alertname="test"` that should be send to receiver email .
+ 
+  - And then outsides the `routes` we have the `recevier` again . We have `group_by` and so on . What are these and how do they impact alerts ?
+ 
+    - These are like Global Configuration that apply to any Alert coming in from Prometheus . This Level apply for all the alert
+   
+  ```
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  ```
+
+  - This configuration bascially just defines how often the notifications should be sent to the receiver and then we have this group attributes, which basically means maybe we don't want to send every alert one by one, maybe we want to group them and bascially send one alert message for a group of alerts to be more efficent
+
+- `inhibit_rules` : are used to make sure we can stop certain alerts from being sent if other alerts are already firing . Let's say we have a critical alert indicating a major outage, if this critical alert is active we might want to inhibit or suppress related less critical alerts that would only add noise .
+
+  - We can configure `source` alert which if triggered will then stop the target alerts that follow from being triggered. We can use these alerts to make sure we don't get overwhelmed during any outages 
+
+- `receivers` . This is a main part of the Alert Configuration . This basically configures alert manager receivers
+
+  - `receivers` are the notification channel or basically where is alert manager sending the alert that are coming from Prometheus and some of the receivers are email, WeChat, PagerDuty, Victor ops
+ 
+  - `null` receiver means that whatever alert comes in from Prometheus will be ignored. That's why even though we were firing an alert from Prometheus, it was being ignored bcs the alert was being sent to the receiver `null`
+ 
+  - Whatever `receiver` we configured here we can then use in `route` section . And here we have aflexibility to define which alert goes to which receiver 
+
+- `templates`
 
 
-
-
-
-
-
-
-
-
+`receivers` is a configuration we need to adjust now and add an email receiver here, as well as configure a `route` here for our 2 alerts and we see that we have a pod crash looping which is our CPU test container which is restarting . So we want these `HostHighCpu` and `KubernetesPodCrashLooping` to be sent to email 
 
 
 
