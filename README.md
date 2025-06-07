@@ -73,6 +73,12 @@
   - [Firing State](#Firing-State)
  
   - [Alertmanager Configuration File](#Alertmanager-Configuration-File)
+ 
+- [Configure Alertmanager with Email Receiver](#Configure-Alertmanager-with-Email-Receiver)
+
+  - [Condfigure Email Notification](#Condfigure-Email-Notification)
+ 
+  - [Apply the configurations](#Apply-the-configurations)
 
 ## Introduction
 
@@ -1098,6 +1104,181 @@ We have 5 main section in the Alert configuration
 
 
 `receivers` is a configuration we need to adjust now and add an email receiver here, as well as configure a `route` here for our 2 alerts and we see that we have a pod crash looping which is our CPU test container which is restarting . So we want these `HostHighCpu` and `KubernetesPodCrashLooping` to be sent to email 
+
+## Configure Alertmanager with Email Receiver
+
+Where is the Alert Manager Configuration come from inside the Cluster? 
+
+In the `alert-manager.yaml` file I generated before . In the `Mounts` section I can see the the Alertmanager config point to  `config-volume` -> `/etc/alertmanager/config from config-volume (ro)` . `config-volume` is a `Secret` with a name is `alertmanager-prometheus-kube-prometheus-alertmanager-generated` (This is where the configuraton come from) 
+
+To check that `kubectl get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -n monitoring -o yaml | less `
+
+![Screenshot 2025-06-07 at 09 31 26](https://github.com/user-attachments/assets/4e450b0b-2af0-4e7c-ae3f-1ea3805f2237)
+
+This is a zipped or archived version of my `alert-manager.yaml` file and the `base-64 encode content` with it 
+
+To decode and unarchiving the content in `echo H4sIAAAAAAAA/7ySy2r0MAyF934KMcsf5k8vdBOYB5gn6DJoXMUR+JLKcoaB0mcvTtppCg3tqlvpWN+xjpxPJ/StARDKyU/UKQdKRVt4CEZSUVqalngiaWEXi/c7A+AklbE7XWp7DxED5REtVXF9lZf6Nw8BAqodSGZJFaEn0ToBDrB7rM2n5D4ZZ2Rt4f4mXysclWRCP5us7kZCXVVv7wbDceATayfFVzN7UBRH2q3he8g0kbBe4PAKZ5TI0b1w7JMByKmIpU09WGFli94A0HNZlvh1Eauf/cyHX2LfXf4FdZ3LMfbpuKw0yRZ8A7c95+M85oCq4nonSmH0qEt0Dalt5ikBIzqSxqbYs2v| base64 -D | gunzip | less`
+
+- `gunzip` to unarchive to content
+
+- `base64 -D` to decode
+
+- `less` is a command pipeline that helps you view large outputs one screen at a time
+
+Once executed I can see my `alertmanager` configuration 
+
+The same way as for Prometheus Configuration file . This is acutally managed by the `Operator` . We could not adjust this value `H4sIAAAAAAAA/7ySy2r0MAyF934KMcsf5k8vdBOYB5gn6DJoXMUR+JLKcoaB0mcvTtppCg3tqlvpWN+xjpxPJ/StARDKyU/UKQdKRVt4CEZSUVqalngiaWEXi/c7A+AklbE7XWp7DxED5REtVXF9lZf6Nw8BAqodSGZJFaEn0ToBDrB7rM2n5D4ZZ2Rt4f4mXysclWRCP5us7kZCXVVv7wbDceATayfFVzN7UBRH2q3he8g0kbBe4PAKZ5TI0b1w7JMByKmIpU09WGFli94A0HNZlvh1Eauf/cyHX2LfXf4FdZ3LMfbpuKw0yRZ8A7c95+M85oCq4nonSmH0qEt0Dalt5ikBIzqSxqbYs2v` even if we overwrote the contents of the file here and set that inside the `Secret`, `Operator` will automatically reload . And also this acutally looks like  a really tedious and not nice way to adjust configuration 
+
+The same as for Prometheus Alert rules we can actually adjust or create configuration for alertmanager using the custom Kubernetes resources from the `monitoring API`  (https://docs.redhat.com/en/documentation/openshift_container_platform/4.15/html/monitoring_apis/alertmanagerconfig-monitoring-coreos-com-v1beta1) . This is another custom Component from monitoring API that actually lets us add or adjust alert manager configuration 
+
+#### Condfigure Email Notification 
+
+I will create another file `touch alert-manager-configuration.yaml`
+
+```
+apiVersion: monitoring.coreos.com/v1beta1
+kind: AlertmanagerConfig
+metadata:
+  namespace: monitoring
+  name: main-rules-alert
+spec:
+```
+
+This part of `alert-manager-configuration` file pretty much the same with the Kubernetes Components . We have `apiVersion`, `kind`, `metadata`, `spec`
+
+For `spec` we will need the docs bcs each kind has its own definition or list of attribute 
+
+First we will need `email recevier`. It is an array of of object . Where we have the name of `receiver` and `emailConfigs[]` 
+
+Let's check the `emailConfigs[]` docs for that . Each Object in the Email list or email configs list will have these attribute . We have `to` and `from`
+
+To be able to send the email from my account, the alertmanager needs to have access to my email account. So we need to give credentials, but also we need to say which email `SMTP` host should be used . Bcs this is a Gmail email it will be `SMTP` and the attribute for that is `smarthost`
+
+We need username and password for our email account . Bcs obviously not everyone can send an email from our account . That will be `authUsername` and `authPassword`. This is a configuration file properly will get check into the Repository and we don't want to hardcode the password 
+
+- Instead I want to reference a secret in Kubernetes that has password value inside
+
+- In the Docs `emailConfigs[].authPassword` we have the way to reference the secret of passowrd . `name` and `key`
+
+- Then I will create a secret yaml file (Never check in the Repository.)
+
+- Very important . We want the secret to be in the same `namespace` as the `alermanager` config otherwise we can not access it 
+
+Also I haveone more attribute which is `AuthIdentity` which is also will be my email address. This is configure a receiver for email address for Gmail in my case where it will send an email 
+
+One Important thing alway consider when sending email using an application . So automated script or application or service accessing my email account and sending email programatically . Most email providers have some kind of security mechanism against this . By defaul the block all this kind of activity. 
+
+- To ensure this email will be send correctly is by using method that is available to me when I have 2 step authentication enabled in my email account, which is bes pratice
+
+- In Gmail specifically I will create and use what's called an `application password` . This `application password` will then be use to access my email account programmatically log into it and send out an email from that email account
+
+- If I do not have 2 steps authentication enabled, I will need to enable it in my account in order for this to be able to work
+
+- Once it is enabled, bcs we are using Gmail, you will need to create an app password . Go to `myaccount.google.com/apppasswords` . From there I can create a dedicated password to be used with Prometheus . This will be a password that we encode and use it in the secret file 
+
+```
+apiVersion: monitoring.coreos.com/v1beta1
+kind: AlertmanagerConfig
+metadata:
+  namespace: monitoring
+  name: main-rules-alert
+spec:
+  receiver
+  - name: 'email'
+    emailConfigs:
+    - to : 'trinhnguyen511998@gmail'
+      from: 'trinhnguyen511998@gmail.com'
+      smarthost: smtp.gmail.com:587
+      authUsername: 'trinhnguyen511998@gmail.com'
+      authIdentity: 'trinhnguyen511998@gmail.com'
+      authPassword:
+        name: gmail-auth
+        key: password
+```
+
+----
+
+```
+email-secret.yaml
+
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: gmail-auth
+  namespace: monitoring
+data:
+  password: base64-encoded-value-of-my-password
+```
+
+Continously . Now we have to configure the `route` section 
+
+We will configure the child `routes` using `matchers`
+
+`matchers` are basically a label name and value pairs 
+
+In the section above we create an `alert rules` has the name and name of the alert itself . This we are matching both of our alerts and we can now configure what we want to do with them 
+
+In this case I can decide I want to send both of them to a receiver called an `email` which I have configured above 
+
+If I have a bunch of receivers here you can basically select them by name and say this alert should be routed to that `receiver`
+
+I can also define other attributes that apply for both of the routes like : `repeatInterval: 30m` Alert will be send to an email and if issue hasn't resolved, we will send another one in 30mins 
+
+And depending on how urgent or the issue is or what kind of issue we have, we can adjust this value and basically send it more ofent or less often 
+
+We also can configure these shared attributed or configuration for each alert specifically . for example I can put the `repeatInterval: 10m` in the `matchers` with `value: KubernetesPodCrashLooping` to send this alert every 10mins
+
+```
+route:
+  receiver: 'email'
+  repeateInterval: 30m
+  routes:
+  - matchers:
+    - name: alertname # this is a label they automatically get
+      value: HostHighCpuLoad # Name of the alert rule
+  - matchers:
+    - name: alertname
+      value: KubernetesPodCrashLooping
+    repeatInterval: 10m 
+```
+
+#### Apply the configurations 
+
+To apply `kubectl apply -f email-secret.yaml` then `kubectl apply -f alert-manager-configuration.yaml`
+
+Just like with Prometheus rule, This is a resource in Kubernetes which we can get and describe and execute all these kubectl commands on . `kubectl get alertmanagerconfig -n monitoring`
+
+And the same way as our Prometheus rule was automatically discovered and picked up and reloaded inside the Prometheus application our alert manager configuration should also be automatically picked up and reloaded inside the alert manager application 
+
+We can also check the logs inside the alertmanager application `kubectl logs alertmanager-monitoring-kube-prometes-alermanager-0 -n monitoring -c config-reloader` . If we notice it also has 2 containers One of them is the alert manager application and it has its own config reloader application just like Prometheus  
+
+If we go back to the Prometheus UI, We will see the existing configuration was merged with our configuration 
+
+If we notice the name of the `receiver` isn't `email` as we specified . It acutally monitoring `main rules-alert-config-email` which is in the `metadata` section. The name of the alertmanager config taken as a prefix and then the name we specified 
+
+`send_resolved: false` mean that when the alert happen we will send it to this email address . However we can configure whether we want to send an email when the issue get resolved. Basically saying hey now everything back to normal here is an email notification that you don't have to take any action 
+
+- This could be very useful in some cases where you want to notify the team that the issue got resolved 
+
+
+And the `headers`, `html` and `require_tls` parts which is configuration for my email structure with from subject to and HTML template . (I can override that)
+
+Go to the `route` section we will see that our `route` and the child route `routes` with matchers were merged also with the existing one . 
+
+Basically the `receiver`, `route`, `matcher` parts were taken from the configuration I defined above . We also see that the `match` automatically get created whenever you add a route into this configuration file . By defaults it adds a `matcher` for a `namesapce` and whatever `namespace` that alert manager configuration was created in . 
+
+- The parts mean that when the host high CPU load alert come from Prometheus to alert manager bcs it's firing, aler manager will check does this alert have a label `alertname: HostHighCPULoad` . Does this alert also have a label `namespace: monitoring`  . If both of these labels match so alert has both of these, then it will be sent to this `receiver: monitoring/main-rules-alert-config/email`. That's  why we have to set this label on both of our alerts . Otherwise this condition or this matcher would be false for both of our alerts and that will mean alert manager would send to receiver `null`
+
+
+
+
+
+
+
+
+
+
 
 
 
