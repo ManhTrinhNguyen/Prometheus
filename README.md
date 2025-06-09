@@ -80,7 +80,13 @@
  
   - [Apply the configurations](#Apply-the-configurations)
  
-- [Trigger Alerts for Email Receiver](#Trigger-Alerts-for-Email-Receiver) 
+- [Trigger Alerts for Email Receiver](#Trigger-Alerts-for-Email-Receiver)
+
+- [Monitor Thrid Party Application](#Monitor-Thrid-Party-Application)
+
+  - [What are Exporters](#What-are-Exporters)
+ 
+  - [Deploy Redis Exporter](#Deploy-Redis-Exporter)
 
 ## Introduction
 
@@ -1305,6 +1311,123 @@ Finally if you also want to test the pod crash looping alert being triggered and
 And again you can make sure that the correct `receiver` was matched by alert manager for this alert for this alert . And then we have `"name": "monitoring/main-rules-alert-config/email"` 
 
 So again Alert was fired by Prometheus, Alert Manager received it and basically checked the alert and its labels, which is a list of labels, `alert name`, `container`, `namespace` . So alert manager basically matched those 2 `labels` (`alertname` and `namespace`) and decided that alert should be routed to email receiver. and then using the configuration of the email configs, it will then send an email to our email account . So that how the flow of alert happen  
+
+## Monitor Thrid Party Application
+
+So far we have configured monitoring for our Kubernetes components and the resource consumption on the host . Plus out of the box we have monitoring for the application that are part of the Prometheus stack . We monitoring Alert Manager, we are monitoring Prometheus Operator, Prometheus Application, and all Kubenetes Component . 
+
+However apart from the monitoring applications themselves and the Kubernetes components, we also have the application themselves like :
+
+- Monitor Third Party application Redis
+
+- Monitor our own application Online-shop
+
+If I do kubectl get pod, we have or microservices as well as third-party application, Redis . What if we wanted to observe or monitor a third-party applciation like Redis for  diffent metric ? 
+
+- For examole we want to know whenever a Redis Application is under load or it has too many connection at once, Or maybe want to monitor that maybe we want to monitor that Redis, but not on a Kubernetes level, but rather on the application level itself . Instead of monitor the pod is running, we want to monitor that the Redis Application itself is running and it is not under load, it doesn't have too many connectons or too few connections, etc ... 
+
+So How do we monitor Third Party application with Prometheus . For that we acutally have exporters for the services 
+
+#### What are Exporters 
+
+An Exporter is simply an application that connects to the Service like Redis and get metric data from that service . Exporter then translate these `metrics` into a time series data format that Prometheus can understand . And after exporter will expose these collected and then translated metrics on its own `/metrics` endpoint where Prometheus can scrape them
+
+When we deployed an exporter in the Cluster, we need to tell Prometheus, Hey there is a new endpoint that you need to scrape, and for that there is a custom Kubernetes resource from the monitoring API called `Service Monitor`
+
+So `Service Monitor` resources need to be created together with the `exporter` that will tell Prometheus that there is a new endpoint with metric data at this specified address 
+
+#### Deploy Redis Exporter 
+
+We will deploy an Redis Exporter so that we can start collecting metrics from the Redis Application and based on tht, we can configure alert rules . For examole to notify us whenever Redis is under pressure or Reids is running out of memory and so on . 
+
+How do we deploy a Redis exporter in the Cluster ?
+
+(https://github.com/oliver006/redis_exporter) This will be an application will talk to Redis and get metics or data from Redis and then translate that to dta that Prometheus can scrape, so this is basically the application will run in the pod . So How do we properly deploy Redis Exporter in our Cluster and for that, we are acutally use a Helm Chart that deploy this Redis Exporter plus all the configuration that we need for this application so that it can run inside Kubernetes Cluster 
+
+So we are not deploying this directly by creating our own configuration files for deployment service, we will use Helm chart that acutally has everything that we need already for the application configured inside, so now if I go and search for Redis Exporter  
+
+(https://github.com/prometheus-community/helm-charts/tree/main/charts/prometheus-redis-exporter) This is a Helm Chart of Prometheus comunitry Helm Chart . I can also find a lot of service in here If I want to use Helm Chart for Kubernetes . This Redis Exporter Helm chart use exacly the Redis Exporter Project above 
+
+What value we need to override in this chart and I can see the default values as well as what I can override, what I can change in the Helm Chart in this value .yaml file .
+
+I can see a lot of default in the default `value.yaml` file as well as what attributes we can acutally override . 
+
+- We have `replicaCount: 1`
+
+- `image: repository: pliver006/redis_exporter`
+
+- We can also configure `env`, so any of the values that we see here we can acutally override
+
+Let's see what values we want to set for Helm Chart in our custom `value.yaml` file 
+
+I will create `redis-value.yaml` file 
+
+- First Value I want to set is `Service Monitor` . I want to `enabled: true` when installing the Helm chart .
+
+- `Serivce Monitor` basically the link between our Exporter and the Prometheus application, so that Prometheus will take our Exporter as one of its target and start scraping its `endpoint` for the metrics. So if you want this to happen If you Prometheus to start scraping endpoint of Redis Exporter, we need to enable this `Service Monitor enabled : true` which will bascially tell the Helm chart to create a service monitor component when installing the Chart,
+
+- However only enabling the Service Monitor here is not enough for Prometheus to automatically pick up our Redis exporter as a Target . We will need 1 more thing
+
+- And that is adding labels so Prometheus can match those Labels and identify that as a new target and that labels is release monitoring, so that is basically the `labels: release: monitoring`. This is the labels that Prometheus looking for in all the service monitors in order to grab them or in order to pick them up as configurtion for new targets and if I do `kubectl get servicemonitor -n monitoring` we have a bunch of out of the box monitor that were deployed when we installed the Prometheus stack and if I look in just one of them we can see that each of the `Service Monitor` acutally has the `labels; release: monitoring` 
+
+We also will need a `Redis address`: This has to be the Redis `Service Name` so that the exporter can acutally connect to the Redis application and start getting metrics there .
+
+- Go to `kubectl get svc | grep redis` And get that name apply to redisADdress `redisAddress: redis://redis-cart:6379` So this is where Redis is accessible by the Exporter
+
+- Usally when we connect to applications we need credentials . We need username and password to authenticate with that service, Redis application that we are running in the Cluster is acutally not password protected so anyone can connect to it within a cluster .
+
+- However if My Reids is password protected and I need username and password Credentials, then you would have to provide that for the exporter as well . And for that I would have to configure this `env`
+
+```
+env:
+  - name: REDIS_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        key: redis-password
+        name: redis-config-0.0.2
+```
+
+- So this Redis Image from Dockerhub by default the `Protected mode` is turn off
+
+Another configuration option That we have here in the `value.yaml` file is `prometheusRule`. So basically that Prometheus rule component that we created, this custom Prometheus component (PromethesRule) can also be configured in `value.yaml` file 
+
+- We can `enable` it , add `label`, `namespace` and define `rules` to it . If we edit the rule as well this would be Prometheus rule component with those alert rules,, however we will create that separately and not as part of the chart and the reason why is bcs `Prometheusrule` component is something we might acutally change multiple times for our Redis application, we might want to add new Rules, we might want to remove some rules  that we don't need anymore. That will be configuration that we may change overtime. 
+
+Now I can install the chart 
+
+- Add the Helm Repo where the chart is located :
+
+```
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+```
+
+- Install the chart `helm install [RELEASE_NAME] prometheus-community/prometheus-redis-exporter -f <value-file.yaml>`
+
+I can see RedisExporter pod running in the cluster `kubectl get pod` and this Applicaiont should now be taling to Redis cart and bascially getting metrics from it, we can also see `Service Monitor` component `kubeclt get servicemonitor` 
+
+Check the configuration `kubectl get servicemonitor <name of redis exporter> -o yaml` . I will see labels `release: monitoring` which will be used for Prometheus to detect this `Service Monitor` and the actual configuration of the `endpoint`
+
+- Under `spec` configuration is where Service Monitor is teilling Prometheus that it should start scraping the endpoint of the RedisExporter at this specific port
+
+- This means we should now be seeing RedisExporter as a new `Target` in our Prometheus, so if I go back to Prometheus UI where we have the `Targets` I will see that in Default namespace a new target was added which `RedisExporter` and it's in the `up` state .
+
+- That mean the Reids able to detect the Redis metric endpoint and it  successfully scraped the metrics from its endpoint .
+
+- This mean Prometheus now has Reids application metrics so If i go to the Redis application metrics, so if I go to the main page and put `redis` I should see a lot of `Metrics` that have Redis in the name, so this is everything that Redis Exporter is exposing to Prometheus to scrape . We have number connected client to the redis application, the CPU usage, database keys  expiring, memory usage etc..     
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
