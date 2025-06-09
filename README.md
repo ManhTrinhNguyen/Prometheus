@@ -79,6 +79,8 @@
   - [Condfigure Email Notification](#Condfigure-Email-Notification)
  
   - [Apply the configurations](#Apply-the-configurations)
+ 
+- [Trigger Alerts for Email Receiver](#Trigger-Alerts-for-Email-Receiver) 
 
 ## Introduction
 
@@ -1270,13 +1272,39 @@ Basically the `receiver`, `route`, `matcher` parts were taken from the configura
 
 - The parts mean that when the host high CPU load alert come from Prometheus to alert manager bcs it's firing, aler manager will check does this alert have a label `alertname: HostHighCPULoad` . Does this alert also have a label `namespace: monitoring`  . If both of these labels match so alert has both of these, then it will be sent to this `receiver: monitoring/main-rules-alert-config/email`. That's  why we have to set this label on both of our alerts . Otherwise this condition or this matcher would be false for both of our alerts and that will mean alert manager would send to receiver `null`
 
+## Trigger Alerts for Email Receiver
 
+#### Test Email Notification 
 
+Right now both of our Alert are green. I will delete the `cpu-test pod` and we will restart it to regenerate the CPU stress, and if the 30s timeout is not enough to generate enough CPU load, we can also increase this, so I will set this at 60s . `kubectl run cpu-test --image=containerstack/cpustress -- --cpu 4 --timeout 60s --metrics-brief`. Soon enough I will see the Alert rule firing 
 
+Now let's actually logically follow the alert as it makes its ways all the way to an email account where we configured Alert Manager to send it to 
 
+First of all Alert Manager has an `endpoint` where we can see all the alerts that came in from Prometheus . So we see that is firing, so inside the Alert Manager, we have an endppoint `127.0.0.1:9090/api/v2/alerts` . This basically show us in the JSON format all the Alert that has been fired . If I copy and search this `HostHighCpuLoad` on the endpoint I should see it's `alertname` 
 
+If we display this is more user-friendly way in the `VScode editor` . We should see some of the `arrtributes` that alert that arrives at the Alert Manager application container 
 
+First of all we have these `annotations` with `description`, `summary` all the stuff that we set, plus auto-generated new ones, 
 
+Then we have a `receiver` that match this alert so we know that Alert Manager `routed` this alert to this `receiver` . So that could be a good way to troubleshoot or debug our alerts and how they are routed, and we see all these . Then we see all the `labels` that our alert contain like 
+
+- `alertname: HostHighCpuLoad` this is the one we configured in the matcher
+
+- We also have the `instance`, the `namespace` and so on
+
+Now that we know that this alert was routed to a correct receiver, now we can go and check our email
+
+You can group multiple alert into 1 notific ation or one email, right now we just have one alert that we are receving . We have the name of the alert `isntance` and basically some key data, from these labels inside the subject, and we have other information in `Labels`, Annotaion 
+
+If this alert arrive in our email inbox without us knowing what's going on in the cluster, we will know that this instance is having a high CPU load, which is currently above the threshold of 50% , so we need to take action bcs obviously something weird is happening in the cluster 
+
+If you see the correct `receiver` for my alert, but email is not arriving, you may acutally have some authentication problems with the emails provider, so to debug that or troubleshoot that, you can also check `Alert Manager` logs `kubectl logs alertmanager-monitoring-kube-prometheus-alertmanager-0 -n monitoring -c alertmanager`, bcs if you have any authentication error, if the email can not be sent, then you will see an error message in the logs. 
+
+Finally if you also want to test the pod crash looping alert being triggered and the sent to my email, then you can actually leave the CPU test pod running in the cluster for some time, bcs it acutally keep restarting and having this `CrashLoopBackOff` status, which is exactly what we are checking and when the restart count becomes greater than 5 the Alert will be fired as well  
+
+And again you can make sure that the correct `receiver` was matched by alert manager for this alert for this alert . And then we have `"name": "monitoring/main-rules-alert-config/email"` 
+
+So again Alert was fired by Prometheus, Alert Manager received it and basically checked the alert and its labels, which is a list of labels, `alert name`, `container`, `namespace` . So alert manager basically matched those 2 `labels` (`alertname` and `namespace`) and decided that alert should be routed to email receiver. and then using the configuration of the email configs, it will then send an email to our email account . So that how the flow of alert happen  
 
 
 
