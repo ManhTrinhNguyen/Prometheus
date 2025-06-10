@@ -87,6 +87,14 @@
   - [What are Exporters](#What-are-Exporters)
  
   - [Deploy Redis Exporter](#Deploy-Redis-Exporter)
+ 
+  - [Alert Rules and Grafana Dashboard for Redis](#Alert-Rules-and-Grafana-Dashboard-for-Redis)
+ 
+    - [Create Alert Rules for Redis](#Create-Alert-Rules-for-Redis)
+   
+    - [Create Redis Dashboard in Grafana](#Create-Redis-Dashboard-in-Grafana)
+   
+    - [Import Grafana Dashboard](#Import-Grafana-Dashboard)
 
 ## Introduction
 
@@ -1416,16 +1424,148 @@ Check the configuration `kubectl get servicemonitor <name of redis exporter> -o 
 
 - This mean Prometheus now has Reids application metrics so If i go to the Redis application metrics, so if I go to the main page and put `redis` I should see a lot of `Metrics` that have Redis in the name, so this is everything that Redis Exporter is exposing to Prometheus to scrape . We have number connected client to the redis application, the CPU usage, database keys  expiring, memory usage etc..     
 
+## Alert Rules and Grafana Dashboard for Redis 
 
+#### Create Alert Rules for Redis 
 
+Since we have those `metrics` now we can actually create Alert rules to configure different anomalies in Redis application that we want to be alerted about 
 
+We want to observe to specific cases: 
 
+- First is When Redis application is down, it's not accessible. We want to be modify right away bcs that would mean the application that are using Redis are not working as well
 
+- Second is whether our Redis application has too many connection at once
 
+I will create a Prometheus rules for Redis metrics : `touch redis-rules.yaml`"
 
+I want to create in `default namespace` where Redis is running 
 
+The `labels: app: kube-prometheus-stack`, `labels: release: prometheus` there so Prometheus rule gets automatically matched by those labels and selected and added to Prometheus alert rules 
 
+Then we have `spec` with `groups` and the list of the `rules`
 
+We could write the Metric Rules ourselves using those metrics that we just saw, Or there is actually a reference documentation where you can find ready alert rules for a lot of different services that is `Awesome Prometheus Alerts` (https://samber.github.io/awesome-prometheus-alerts/)
+
+- In this docs we have a bunch of alert rules already writtent that I can just reuse for own use case . They are group by Service Type
+
+- We also have a bunch of Redis rules . Alert rules base on the metrics from this Redis exporter application that we are using (above). That's why we can use those rules
+
+- First we want to observe is Redis down ? If Redis instance is not available we want to alert about that
+
+  - `redis_up` which is one of the metrics, has to be more than 0, which would mean that one of the Redis replicas is running if `redis_up == 0` it means Redis is not running in our Cluster. And it's super critical we want to modify about that right away 
+
+```
+- alert: RedisDown
+  expr: redis_up == 0
+  for: 0m
+  labels:
+    severity: critical
+  annotations:
+    summary: Redis down (instance {{ $labels.instance }})
+    description: "Redis instance is down\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
+```
+
+- Second Alert is when Redis has too many connections, which mean the Redis Server may get overloaded and basically not able to handle any application requests
+
+  - `redis_connected_clients / redis_config_maxclients * 100 > 90` This expression calculate how many express and it compare to maximum number of clients, Redis is configured t oallow and owrk it out as `%` . If it over 90% then the alert will be triggered . I can configure my own value as well in my own Redis Configuration to decide what too many connections is for my Redis Application
+ 
+- Basically I can use the document as a reference for whenever I want to create a alert rule for my services, whether I have different DB services or more low level resources as well as Kubernetes resources from the `kube-state-metrics`. Which is also what we have running in our cluster as part of the Prometheus stack 
+
+```
+- alert: RedisTooManyConnections
+  expr: redis_connected_clients / redis_config_maxclients * 100 > 90
+  for: 2m
+  labels:
+    severity: warning
+  annotations:
+    summary: Redis too many connections (instance {{ $labels.instance }})
+    description: "Redis is running out of connections (> 90% used)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+```
+
+This is a complete alert rules
+
+```
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: redis-rules
+  labels:
+    app: kube-prometheus-stack
+    release: prometheus
+spec:
+  groups:
+  - name: redis.rules
+    rules:
+    - alert: RedisDown
+      expr: redis_up == 0
+      for: 0m
+      labels:
+        severity: critical
+      annotations:
+        summary: Redis down (instance {{ $labels.instance }})
+        description: "Redis instance is down\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+    - alert: RedisTooManyConnections
+      expr: redis_connected_clients / redis_config_maxclients * 100 > 90
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: Redis too many connections (instance {{ $labels.instance }})
+        description: "Redis is running out of connections (> 90% used)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+```
+
+Let's apply this rule `kubectl apply -f redis-rules.yaml`
+
+To see the rule in default namespace : `kubectl get prometheusrule`
+
+I will see the Alert rules in Prometheus UI in a couples minitues 
+
+#### Trigger Redis Down 
+
+I will take down the Redis Pod `kubectl edit deployment redis-cart` . I will set number of replicas to 0  
+
+Now our Redis Exporter should get the Metric that Redis application is not available . It should get `redis_up == 0`. This will not happen immediately bcs we have a configuration for the scrape interval bascially it is defined how often the Redis exporter endpoint will be scraped, which you an also configure . This is a configuration in service monitor `interval` attribute 
+
+Right now Promethues is scraping the exporter endpoint every 30s . And after 30s we should see the alert already firing bcs this expression was met
+
+If the Alert Manager is configured to send this alert to a specific receiver, then you will get that alert on that configured receiver 
+
+If I take the Redis Pod `kubectl edit deployment redis-cart` . I will set number of replicas to 1 again I will see the Alert will back to green  
+
+#### Create Redis Dashboard in Grafana
+
+Finally when we get notified about the issue or when the alert fires, we may want to see the data in a dashboard as well to analyze better what's happening or to see any other activity around that time that may have caused it 
+
+Having an addition visualization in Grafana, in addition to the configured alerts, could actually help analyze the issue better .
+
+So in the case of Redis data, for example how do we configure Redis dashboard in Grafana . We could actually create a Grafana dashboard with all the Redis Metrics or an easier and more convenient way would be to use an existing Redis dashboard which is already pre-configured for most of the metrics
+
+I can find such dashboard on (https://grafana.com/grafana/dashboards/)
+
+We have like Nginx, AWS EC2, Cloudwatch, etc .... 
+
+I will google Prometheus redis exporter grafana dashboard (https://grafana.com/grafana/dashboards/763-redis-dashboard-for-prometheus-redis-exporter-1-x/)
+
+Important thing about existing dashboard is to make sure that it is using the correct `metrics` from your Cluster . This Dashboard using the `metrics` from the Redis Exportert that we are using (https://github.com/oliver006/redis_exporter). That mean we can use this Grafana Dashboard for our Redis application 
+
+#### Import Grafana Dashboard
+
+Go to my Grafana dashboard `localhost:8080` and to import any Dashboard from Grafana Dashboard, all I need is this Dashboard ID `ID: 763` in the dashboard website
+
+<img width="400" alt="Screenshot 2025-06-10 at 11 27 56" src="https://github.com/user-attachments/assets/9ae3f3f3-6a84-44da-8ba4-ad05d9bafef3" />
+
+ I will copy this and go to Dashboard page Grafana select New Dashboard -> Select import Dashboard and paste the Dashboard ID there and click load 
+
+<img width="400" alt="Screenshot 2025-06-10 at 11 29 46" src="https://github.com/user-attachments/assets/134c654e-6c4e-4d22-93d4-be1bdd0b433d" />
+
+We can configure some options there like Name of the dashboard 
+
+Then add it to Default Dashboard folder and the data source will be Prometheus . 
+
+Then it will automatically connect to the exporter and if I do `kubectl describe service redis-exporter` I will see the same value as in the dashboard is the `endpoint` of the Redis exporter service, so that's where the metrics are available 
+
+Basically we have the uptime, how long has Redis application been running and available, have number of clients connected and if you hover over the panel, I will se the PromQL in the background for the panel and as you see here, this uses the metric for Redis connected clients and that's how you can basically easily import Grafana dashboards for different services without having to create them from scratch myself  
 
 
 
