@@ -95,6 +95,20 @@
     - [Create Redis Dashboard in Grafana](#Create-Redis-Dashboard-in-Grafana)
    
     - [Import Grafana Dashboard](#Import-Grafana-Dashboard)
+   
+- [Monitor own App Collect and Expose Metrics with Prometheus Client Library](#Monitor-own-App-Collect-and-Expose-Metrics-with-Prometheus-Client-Library)
+
+  - [Time series format](#Time-series-format)
+ 
+  - [Expose Metrics Nodejs Client Library](#Expose-Metrics-Nodejs-Client-Library)
+ 
+  - [Build Docker Image and push to Repo](#Build-Docker-Image-and-push-to-Repo)
+ 
+  - [Configure Monitoring](#Configure-Monitoring)
+ 
+  - [Create Service Monitor](#Create-Service-Monitor)
+ 
+  - [Create Grafana Dashboard](#Create-Grafana-Dashboard)
 
 ## Introduction
 
@@ -1567,14 +1581,299 @@ Then it will automatically connect to the exporter and if I do `kubectl describe
 
 Basically we have the uptime, how long has Redis application been running and available, have number of clients connected and if you hover over the panel, I will se the PromQL in the background for the panel and as you see here, this uses the metric for Redis connected clients and that's how you can basically easily import Grafana dashboards for different services without having to create them from scratch myself  
 
+## Monitor own App Collect and Expose Metrics with Prometheus Client Library
+
+At this point We have configured monitoring for different levels in our Kubernetes Cluster 
+
+- Monitor Kubernetes Nodes and the Resource consumption on those Nodes
+
+- We have monitoring for Kubernetes components as well as third party application that are running inside the Cluster, like Monitor Stack Application themselves as well as Redis application
+
+What missing is monitoring for own Application (Nodejs App)
+
+Obviously for our own application there is no Exporter or a ready application that we can just deploy in the Cluster and start scraping the Metrics . We have to actually define those metrics and we have to create that application 
+
+We need some custom solution here to start moniotring our own applications 
+
+In order to monitor our own applications with Prometheus we need to use `Prometheus Client Libraries` in those applications 
+
+Prometheus client libraries are basically libraries for different programming languages that give you an abstract interface for defining metrics in your application that you want to expose as well as exposing those metrics in the `time series format` that Prometheus can scrape
+
+#### Time series format 
+
+In Prometheus, the time series format refers to how data is structured so it can be stored, queried, and visualized effectively
+
+What Is a Time Series ?
+
+A time series is simply a sequence of data points recorded over time. Each data point includes:
+
+- Metric name – What you're measuring (e.g., http_requests_total)
+
+- Labels – Key-value pairs that add dimensions to the metric (e.g., {method="GET", status="200"})
+
+- Timestamp – When the measurement was taken
+
+- Value – The actual measurement (e.g., number of requests)
+
+In this part we will expose metrics for our Nodejs application using Nodejs Client Library 
+
+Once we have exposed metrics using this Prometheus client library, we will deploy our simple Nodejs applcation in the Cluster and we will configure Prometheus to start scraping the metrics that our application is exposing through this Prometheus Client Library 
+
+Once we have Prometheus scraping the metrics of our own application, we can of course configure alert rules, we can create Grafana dashboard based on those metrics to visualize the data ... (Like any other Resources)
+
+#### Expose Metrics Nodejs Client Library
+
+As an example of the Prometheus client library we will use this simple Nodejs Application (https://gitlab.com/twn-devops-bootcamp/latest/16-prometheus/nodejs-app-monitoring/-/blob/main/app/server.js?ref_type=heads). This application will start on port 3000 
+
+First step for monitoring this application we want to expose metrics of the application and we will explicitly expose 2 `metrics` 
+
+- One of them is number of requests the application is getting. With this we can check at any point in time how much load the application has
+
+- And the second one will be the duration of requests . So bascially how long this application take to handle the requests . So if the application is too slow in handling the request, that's a bad sign . Need to fixed
+
+In real project the way it will work usally me as a DevOps Engineer or Kubernetes administator who has set up the monitoring in the Cluster and who also wants to take the custom applications, the internal application under monitoring, you will usally go to the developer and tell them to configure the exposing of metrics of their own applications so that you can start monitoring it with Prometheus and since they are the developers and they know the code, they will basically go and find that Prometheus Client Library, intergrate that with their codem basically expose some of the metrics that they are interested in or you are interested in to monitor and bascially write the code . So that not a responsibility of Devops engineer but rather a developer team job 
 
 
+Let's say developer have already integrated Prometheus client in this Nodejs 
+
+- First of all the Client for Nodejs is called `prom-client`. I can see in the `package.json`. If I look up Prometheus Client Nodejs I will see the npm package manager and its documentation Developer will use to understand how they can this library and its functions to bascially start exposing the metrics that they are interested in
+
+-  Once it been edit in the dependencies it can then be used in the code, we have just one Nodejs file `server.js` .
+
+-  `const client = require('prom-client)` to import prom client library
+
+-  `const collectDefaultMetrics = client.collectDefaultMetrics` that tells we want to expost number of request and request durationm but this library also lets you expose some default metrics out of the box without you configuring anything . `collectDefaultMetrics({ timeout: 5000 })` so those default metrics will be updated or exposed every 5s
+
+```
+const httpRequestsTotal = new client.Counter({
+  name: 'http_request_operations_total'
+  help: 'Total number of HTTP requests'
+})
+``` 
+
+- This one is the number of HTTP request to our application and for that we are using a counter bcs it is a `Counter` type of a . This will tell Client Library hey we are interested in creating this metrics here with this name and description as well as duration of requests which is going to be histogram and histogram type
+
+```
+const httpRequestDurationSeconds = new client.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duration of Http requests in secons',
+  buckets: [0.1, 0.5, 2, 5, 10]
+}) 
+```
+
+- `Histogram` type actually works in buckets, so you have multiple buckets, the lowest one and the highest one and depending on the value of the duration in Second. It will be assigned to one of the buckets
+
+- Those just defined the metric. As a next step we want to acutally track those numbers, whenever a new request gets made to the application, we want to increment the number of requests . Or for that request we want to calculate how long that request took. The logic of that is this :
+
+```
+app.get('/', function (req, res) {
+    // Simulate sleep for a random number of milliseconds
+    var start = new Date()
+    var simulateTime = Math.floor(Math.random() * (10000 - 500 + 1) + 500)
+
+    setTimeout(function(argument) {
+      // Simulate execution time
+      var end = new Date() - start
+      httpRequestDurationSeconds.observe(end / 1000); //convert to seconds
+    }, simulateTime) ## Simulating the request has been processed by the application logic and after that period of time, it returned the response 
+
+    httpRequestsTotal.inc(); # Incrementing the number of total request
+    res.sendFile(path.join(__dirname, "index.html")); # Return response
+});
+```
+
+- First of all we are simulating the request handling duration for a random number of time or random duration time
+
+- I have to understand the Logic . The Logic is that for every metric that you want to expose in your application, you have to explicitly define that metric in your code and you have to track the value of that metric in your logic 
+
+- Once the `metrics` are collected metrics should also be expose. The default endpoint where metrics gets expose is `/metrics`.
+
+```
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', client.register.contentType)
+  res.end(await client.register.metrics())
+})
+```
+
+- In this `/metrics` endpoint we are setting the `contentType` of the metrics data, which is time series data format . And we get that `contentType` from Client
+
+- And finally we are sending the whole data to the UI or to the browser using `client.register.metrics()`
+
+- To see those metrics `localhost:3000/metrics`
+
+Now we have the application that exposing metrics we can track and mornitor its data 
+
+As next step we will deploy this application in the cluster so we can connect Prometheus to it and bascially start scraping those application metrics, which will then allow us to configure Alert  rule for them or just visulize them in Grafana   
+
+#### Build Docker Image and push to Repo 
+
+To build image : `docker build -t <repo name>:<appname> .`
+
+To push docker image : `docker login` and then `docker push <repo name>:<appname>`
+
+If I have a CI/CD pipeline set up for my application, I would just commit to the Git Repo it will then trigger a build and build will then push it to the Docker Private Repo, That will be a proper workflow for building an application 
+
+#### Deploy app into Kubernetes Cluster  
+
+I will create a Deployment and Service in my Application 
+
+Bcs we are deploying a private Repo Image we will need to give Kubernetes access to that Docker Private repo as well 
+
+I will create a Docker login Secret in the Cluster that Deployment can use and fetch Image from Repo `kubectl create secret docker-registry my-registry-key --docker-server=https://index.docker.io/v1/ --docker-username=nguyenmanhtrinh --docker-password=mypassword` 
+
+```
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nodeapp
+  labels:
+    app: nodeapp
+spec:
+  selector:
+    matchLabels:
+      app: nodeapp
+  template:
+    metadata:
+      labels:
+        app: nodeapp
+    spec:
+      imagePullSecrets:
+      - name: my-registry-key
+      containers:
+      - name: nodeapp
+        image: <repo name>:<appname>
+        ports:
+        - containerPort: 3000
+        imagePullPolicy: Always  
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nodeapp
+  labels:
+    app: nodeapp
+spec:
+  type: ClusterIP
+  selector:
+    app: nodeapp
+  ports:
+  - name: service
+    protocol: TCP
+    port: 3000
+    targetPort: 3000
+
+```
+
+I will port forwarding to check if service run correctly `kubeclt port-forward svc/nodeapp 3000:3000`
 
 
+#### Configure Monitoring
+
+#### Create Service Monitor 
+
+To tell Prometheus that is a new endpoint that it need to scrape we will use `ServiceMonitor`
+
+`ServiceMonitor` is a link between Prometheus and any new endpoint in my Cluster that you want Prometheus to monitor .
+
+That mean we will create Service Monitor component for our node application that points to that `metrics` endpoint and when we create that in the Cluster Prometheus should automatically pick up a new target and start those `metrics` from that new target
+
+`apiVersion: monitoring.coreos.com/v1` This is a API version for Service Monitor 
+
+`kind: ServiceMonitor`
+
+`ServiceMonitor` have to have a label that will be used by Prometheus to basically match all the Service monitors in the Cluster, and that labels, in our case is `release: monitoring`. Also I want to add `labels: app: nodeapp`
+
+`spec`:
+
+- First we need to define when Prometheus discovers this service monitor, service monitor actually tell Prometheus this is the `endpoint` you need to scrape
+
+  - So we have a list of `endpoints`.
+ 
+  - We have `path: /metrics`
+ 
+  - `port: <name of the Service>` is the name of the port that service is accessible at . In `service` we can name our port by adding name attribute under `ports` . If I have multiple Port each one will have its own name (This could be any name that I want)
+ 
+  - `targetPort: 3000` : This is Port of the application
+ 
+- Another thing we have to configure is `namespaceSelector`:
+
+  - Our Prometheus stack is running in its own `monitoring` namespace . However our application and the service monitor as well will be deployed in default namespace, or could be also another namespace
+ 
+  - So when `Service Monitor` is in a different namespace than the monitoring stack or Prometheus application itself, we need to expicitly configure `service monitor` with  `namespaceSelector` attribute. So that it can be discovered by Prometheus in another namespace as well
+ 
+  - `namespaceSelector: matchNames: - default` . I can basically match any namespace I can do `namespaceSelector: any: true`
+ 
+- Finally the final configuration is a `Labels` selector
+
+  - We labels our pod with `app: nodeapp` . Labels are there so that other resources can target that specific component .
+ 
+  - In `Service Monitor` we will define selector `selector: matchLabels: app: nodeapp`. So bascially find the application that has this specific label
+
+- Sum up : We configured `Service Monitor` to find application with this specific labels `app: nodeapp`. In the `default namespace`, and then access that application's metrics on Service Port, Target port 3000 on `/metrics` endpoint
+
+- Let's save and apply our Service Monitor . So that Prometheus can start scraping the `metrics` . 
 
 
+```
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: monitoring-node-app
+  labels:
+    release: monitoring
+    app: nodeapp
+spec:
+  endpoints:
+  - path: /metrics
+    port: service
+    targetPort: 3000
+  namespaceSelector:
+    matchNames:
+    - default
+  selector:
+    matchLabels:
+      app: nodeapp
+```
 
+Once we applied this configuration we should see a new target that Prometheus picked up for our Nodejs Application (Take a couple minutes for Prometheus to apply)
 
+Now I have another target in the default namespace call `monitoring-node-app` with one instance or one endpoint and it is in an up state which mean Prometheus was able to connect to that endpoint and scape metrics . So now if I go back to Prometheus main page, and if I type in `http_request` we will see all our metric . We have `http_request_operation_total` as well as duration metric 
+
+I will make a couple of request and track the metric again we should see the number of total requests have increased . And we should see that value pretty soon in our Prometheus as well after we have scrape a latest data from our application 
+
+For our `metric` we also have all these labels available that get automatically injected and added to the metric when it gets collected by Prometheus, so we know which container, which pod it is coming from, as well as which service and endpoint was used to scrape it, and which job was responsible for scraping this `metric`
+
+If I go to configuration, you see that a new job was automatically created and added to Prometheus configuration with the name of service monitor, default namepsace and the name of the service . So that job was created when Prometheus discovered the Service monitor and the job is now responsible for scraping the application endpoint every 30s . 
+
+Once we have the metrics we can actually use them to trigger alerts
+
+For example: We have too many requests happening per seconds in our application, or if the request is taking too long for some reason  
+
+#### Create Grafana Dashboard
+
+Inside Grafana let's do create new Dashboard . 
+
+Let's create 2 simple Panels basically display us graphical representation for each of the metrics . 
+
+First one for number total HTTP request . 
+
+- Going back to Promethus UI let's do `http_request_operation_total` . Check out the graph in Prometheus UI of this metric, we have this incrementing graph, so it basically displays over the time, over total period of time, the number of requests, so it always increments and goes up .
+
+- However what we want to know what will be more interesting for us is now how many requests the application got in total, but rather how many requests is our application getting per second, so that we can detect whether application is under load, or too many people are visiting our application at once and so on, and to visualize that we just need to display a `rate` . So bascially number of total request per second measured in 2 mins interval `rate(http_request_operation_total[2m])`
+
+- If I execute this I will see a different type of graph, that shows number of total rqeuests per second
+
+- I will copy this `rate(http_request_operation_total[2m])` and paste it in Grafana PromQL query . Click run `queries` I should see the data, or the graph generated in Granafa . Let save and name it `Nodejs Dashboard`
+
+- I can change the name of the Panel to describe what the panel actually is represent
+
+So this way you can really observe if there is any anomalies, if there is heavier than usual load on my application and for that duration I can visulize the duration, how long the request took bascially how good my application is handling those request . For that I will create another Panel
+
+- Go to Prometheus UI and get `http_request_duration_seconds_sum`. So that a total number of duration of all the request that application got and again you see it's just increasing or incrementing value, which is not what we want . We don't want a total duration for all the rqeuest overtime but we duration per seconds for the request
+
+- We can identify whether at some point application was taking too long to handle the requests, or was more efficient in handling the requests faster, and again for that we have `rate(http_request_duration_seconds_sum[2m])`. If I execute again you see diffent type of graph for the duration for request per second, and the same way we can just copy thos expression paste it in Grafana UI  
 
 
 
