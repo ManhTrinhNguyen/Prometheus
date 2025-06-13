@@ -1,0 +1,6 @@
+serviceMonitor:
+  enabled: true
+  labels:
+    release: prometheus
+
+redisAddress: redis://redis:6379

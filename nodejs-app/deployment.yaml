@@ -1,0 +1,62 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nodeapp
+  labels:
+    app: nodeapp
+spec:
+  selector:
+    matchLabels:
+      app: nodeapp
+  template:
+    metadata:
+      labels:
+        app: nodeapp
+    spec:
+      imagePullSecrets:
+      - name: my-docker-registry-key
+      containers:
+      - name: nodeapp
+        image: nguyenmanhtrinh/demo-app:nodejs-app-monitoring
+        ports:
+        - containerPort: 3000
+        imagePullPolicy: Always  
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nodeapp
+  labels:
+    app: nodeapp
+spec:
+  type: ClusterIP
+  selector:
+    app: nodeapp
+  ports:
+  - name: service
+    protocol: TCP
+    port: 3000
+    targetPort: 3000
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: monitoring-node-app 
+  labels:
+    app: nodeapp 
+    release: prometheus
+spec: 
+  endpoints:
+  - port: service
+    path: /metrics
+    targetPort: 3000
+  namespaceSelector:
+    matchNames:
+      - default
+  selector:
+    matchLabels:
+      app: nodeapp
+
+
+
